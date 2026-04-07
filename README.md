@@ -1,7 +1,8 @@
-# SKiDL Language Server - VS Code Extension
+# SKiDL IntelliSense - VS Code Extension
 
 [![CI](https://github.com/ashergarland/skidl-vscode/actions/workflows/ci.yml/badge.svg)](https://github.com/ashergarland/skidl-vscode/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/release/ashergarland/skidl-vscode?label=version)](https://github.com/ashergarland/skidl-vscode/releases)
+[![Marketplace](https://img.shields.io/visual-studio-marketplace/v/ashergarland.skidl-lsp?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=ashergarland.skidl-lsp)
 
 A VS Code extension that provides real-time language intelligence for [SKiDL](https://github.com/devbisme/skidl) Python files. Validates KiCad symbol names, footprint names, and pin names against your installed KiCad libraries before you ever run the script.
 
@@ -108,7 +109,8 @@ If auto-detection doesn't work, set the paths explicitly:
 
 | Command | Description |
 |---------|-------------|
-| `SKiDL: Rebuild KiCad Library Index` | Force a full rebuild of the KiCad library index (skips cache) |
+| `SKiDL: Refresh KiCad Library Index` | Reload the library index, using the cache if it's still valid |
+| `SKiDL: Force Rebuild KiCad Library Index` | Force a full rebuild of the KiCad library index (skips cache) |
 
 ## Development
 
