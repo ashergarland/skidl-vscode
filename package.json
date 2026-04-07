@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/skidl-tools/skidl-vscode"
+    "url": "https://github.com/ashergarland/skidl-vscode"
   },
   "engines": {
     "vscode": "^1.85.0"
