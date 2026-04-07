@@ -2,13 +2,14 @@
   "name": "skidl-lsp",
   "displayName": "SKiDL Language Server",
   "description": "SKiDL Language Server: real-time KiCad symbol, footprint, and pin validation for SKiDL Python files",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "publisher": "skidl-tools",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/ashergarland/skidl-vscode"
   },
+  "icon": "icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -76,7 +77,8 @@
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "test:server": "cd server && python -m pytest ../test/ -v",
-    "package": "vsce package",
+    "package": "vsce package --allow-missing-repository",
+    "build": "npm run compile && npm run package",
     "pretest": "npm run compile"
   },
   "dependencies": {

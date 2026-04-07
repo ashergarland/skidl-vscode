@@ -27,6 +27,9 @@ from .indexer import LibraryIndex
 log = logging.getLogger(__name__)
 
 
+_SKIDL_IMPORT_RE = re.compile(r'(?:from\s+skidl\s+import|import\s+skidl)')
+
+
 def get_completions(
     source: str,
     position: Position,
@@ -34,7 +37,9 @@ def get_completions(
     index: LibraryIndex,
 ) -> Optional[CompletionList]:
     """Return completion items for the given position, or None."""
-    if not analysis.is_skidl_file:
+    # Use regex check instead of AST analysis.is_skidl_file because the user
+    # is likely mid-edit with syntax errors (unclosed strings, etc.)
+    if not analysis.is_skidl_file and not _SKIDL_IMPORT_RE.search(source):
         return None
 
     line_idx = position.line

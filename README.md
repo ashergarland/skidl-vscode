@@ -1,5 +1,8 @@
 # SKiDL Language Server - VS Code Extension
 
+[![CI](https://github.com/ashergarland/skidl-vscode/actions/workflows/ci.yml/badge.svg)](https://github.com/ashergarland/skidl-vscode/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/github/v/release/ashergarland/skidl-vscode?label=version)](https://github.com/ashergarland/skidl-vscode/releases)
+
 A VS Code extension that provides real-time language intelligence for [SKiDL](https://github.com/devbisme/skidl) Python files. Validates KiCad symbol names, footprint names, and pin names against your installed KiCad libraries before you ever run the script.
 
 ## Features

@@ -1,4 +1,4 @@
-"""SKiDL Language Server — pygls entry point.
+﻿"""SKiDL Language Server â€” pygls entry point.
 
 Launch with:  python server/server.py
 Communicates over stdio using the LSP protocol.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import sys
 
 # Ensure the extension root is on sys.path so "from server.xxx" imports work
@@ -35,6 +36,9 @@ from lsprotocol.types import (
     Hover,
     HoverParams,
     InitializeParams,
+    Position,
+    PublishDiagnosticsParams,
+    Range,
     TextEdit,
     WorkspaceEdit,
 )
@@ -60,6 +64,7 @@ class SkidlLanguageServer(LanguageServer):
         self.index = LibraryIndex()
         self._analyses: dict[str, AnalysisResult] = {}
         self._settings: dict = {}
+        self._index_ready = False
 
 
 server = SkidlLanguageServer()
@@ -71,23 +76,52 @@ server = SkidlLanguageServer()
 
 @server.feature("initialize")
 def on_initialize(params: InitializeParams):
+    log.info("on_initialize called")
     opts = params.initialization_options or {}
     if isinstance(opts, dict):
         server._settings = opts
+    log.info("Settings captured: %s", list(server._settings.keys()))
 
+
+@server.feature("initialized")
+def on_initialized(params):
+    log.info("on_initialized called, starting index build in background...")
     sym_dir = server._settings.get("kicadSymbolDir", "")
     fp_dir = server._settings.get("kicadFootprintDir", "")
 
-    log.info("Building KiCad library index...")
-    server.index = build_index(
-        symbol_dir_override=sym_dir,
-        footprint_dir_override=fp_dir,
-    )
-    log.info(
-        "Index ready: %d symbol libs, %d footprint libs",
-        len(server.index.symbols),
-        len(server.index.footprints),
-    )
+    def _build():
+        try:
+            server.protocol.notify("skidl/indexStart")
+        except Exception:
+            log.debug("Failed to send indexStart notification", exc_info=True)
+
+        try:
+            idx = build_index(
+                symbol_dir_override=sym_dir,
+                footprint_dir_override=fp_dir,
+            )
+            server.index = idx
+            server._index_ready = True
+            msg = f"{len(idx.symbols)} symbol libs, {len(idx.footprints)} footprint libs"
+            log.info("Index ready: %s", msg)
+
+            try:
+                server.protocol.notify("skidl/indexEnd", {"message": msg})
+            except Exception:
+                log.debug("Failed to send indexEnd notification", exc_info=True)
+
+            # Re-validate all open documents now that the index is ready
+            for uri, analysis in list(server._analyses.items()):
+                doc = server.workspace.get_text_document(uri)
+                _validate(doc.uri, doc.source)
+        except Exception:
+            log.exception("Failed to build index")
+            try:
+                server.protocol.notify("skidl/indexEnd", {"message": "Failed"})
+            except Exception:
+                pass
+
+    threading.Thread(target=_build, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
@@ -98,15 +132,40 @@ def on_initialize(params: InitializeParams):
 def on_rebuild_index(params=None):
     sym_dir = server._settings.get("kicadSymbolDir", "")
     fp_dir = server._settings.get("kicadFootprintDir", "")
-    server.index = build_index(
-        symbol_dir_override=sym_dir,
-        footprint_dir_override=fp_dir,
-    )
-    log.info("Index rebuilt")
-    # Re-validate all open documents
-    for uri, analysis in list(server._analyses.items()):
-        doc = server.workspace.get_text_document(uri)
-        _validate(doc.uri, doc.source)
+
+    def _rebuild():
+        server._index_ready = False
+        try:
+            server.protocol.notify("skidl/indexStart")
+        except Exception:
+            pass
+
+        try:
+            idx = build_index(
+                symbol_dir_override=sym_dir,
+                footprint_dir_override=fp_dir,
+                force=True,
+            )
+            server.index = idx
+            server._index_ready = True
+            msg = f"{len(idx.symbols)} symbol libs, {len(idx.footprints)} footprint libs"
+            log.info("Index rebuilt: %s", msg)
+            try:
+                server.protocol.notify("skidl/indexEnd", {"message": msg})
+            except Exception:
+                pass
+            # Re-validate all open documents
+            for uri, analysis in list(server._analyses.items()):
+                doc = server.workspace.get_text_document(uri)
+                _validate(doc.uri, doc.source)
+        except Exception:
+            log.exception("Failed to rebuild index")
+            try:
+                server.protocol.notify("skidl/indexEnd", {"message": "Failed"})
+            except Exception:
+                pass
+
+    threading.Thread(target=_rebuild, daemon=True).start()
     return {"status": "ok"}
 
 
@@ -131,21 +190,31 @@ def on_save(params: DidSaveTextDocumentParams):
     _validate(doc.uri, doc.source)
 
 
+def _publish(uri: str, diags: list):
+    server.text_document_publish_diagnostics(
+        PublishDiagnosticsParams(uri=uri, diagnostics=diags)
+    )
+
+
 def _validate(uri: str, source: str):
     analysis = analyze(source)
     server._analyses[uri] = analysis
 
     if not analysis.is_skidl_file:
-        server.publish_diagnostics(uri, [])
+        _publish(uri, [])
+        return
+
+    # Don't publish diagnostics until the index is ready
+    if not server._index_ready:
         return
 
     enabled = server._settings.get("enableDiagnostics", True)
     if not enabled:
-        server.publish_diagnostics(uri, [])
+        _publish(uri, [])
         return
 
     diags = compute_diagnostics(analysis, server.index)
-    server.publish_diagnostics(uri, diags)
+    _publish(uri, diags)
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +267,13 @@ def on_code_action(params: CodeActionParams) -> list[CodeAction]:
             continue
         suggestions = data.get("suggestions", [])
         for suggestion in suggestions:
-            edit = TextEdit(range=diag.range, new_text=suggestion)
+            # Shrink range by 1 char on each side to preserve surrounding quotes
+            r = diag.range
+            inner = Range(
+                start=Position(line=r.start.line, character=r.start.character + 1),
+                end=Position(line=r.end.line, character=r.end.character - 1),
+            )
+            edit = TextEdit(range=inner, new_text=suggestion)
             actions.append(CodeAction(
                 title=f"Replace with '{suggestion}'",
                 kind=CodeActionKind.QuickFix,
@@ -216,3 +291,4 @@ def on_code_action(params: CodeActionParams) -> list[CodeAction]:
 
 if __name__ == "__main__":
     server.start_io()
+
