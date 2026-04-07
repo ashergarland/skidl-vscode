@@ -1,0 +1,14 @@
+out/
+node_modules/
+*.vsix
+.vscode-test/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+server/__pycache__/
+test/__pycache__/

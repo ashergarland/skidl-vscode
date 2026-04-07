@@ -1,0 +1,12 @@
+.vscode/**
+.vscode-test/**
+src/**
+test/**
+out/**/*.map
+node_modules/**
+__pycache__/**
+.pytest_cache/**
+*.pyc
+.gitignore
+tsconfig.json
+**/*.ts

@@ -1,0 +1,94 @@
+{
+  "name": "skidl-lsp",
+  "displayName": "SKiDL Language Server",
+  "description": "Real-time KiCad symbol, footprint, and pin validation for SKiDL Python files",
+  "version": "0.1.0",
+  "publisher": "skidl-tools",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/skidl-tools/skidl-vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "skidl",
+    "kicad",
+    "pcb",
+    "eda",
+    "electronics"
+  ],
+  "activationEvents": [
+    "onLanguage:python"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "skidl.rebuildIndex",
+        "title": "SKiDL: Rebuild KiCad Library Index"
+      }
+    ],
+    "configuration": {
+      "title": "SKiDL Language Server",
+      "properties": {
+        "skidl.kicadSymbolDir": {
+          "type": "string",
+          "default": "",
+          "description": "Override auto-detected KiCad symbol library directory"
+        },
+        "skidl.kicadFootprintDir": {
+          "type": "string",
+          "default": "",
+          "description": "Override auto-detected KiCad footprint library directory"
+        },
+        "skidl.enableDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time diagnostics for Part(), footprint, and pin validation"
+        },
+        "skidl.enableAutocomplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable autocomplete for library names, symbols, footprints, and pins"
+        },
+        "skidl.enableHover": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable hover documentation for parts, pins, and footprints"
+        },
+        "skidl.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to Python interpreter with pygls installed (for the language server)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test:server": "cd server && python -m pytest ../test/ -v",
+    "package": "vsce package",
+    "pretest": "npm run compile"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "2.15.0",
+    "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "undici": "5.28.4"
+  }
+}
