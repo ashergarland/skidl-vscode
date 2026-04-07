@@ -7,7 +7,14 @@ Communicates over stdio using the LSP protocol.
 from __future__ import annotations
 
 import logging
+import os
 import sys
+
+# Ensure the extension root is on sys.path so "from server.xxx" imports work
+# regardless of the working directory when the server is launched.
+_ext_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ext_root not in sys.path:
+    sys.path.insert(0, _ext_root)
 
 from lsprotocol.types import (
     TEXT_DOCUMENT_COMPLETION,
@@ -31,7 +38,7 @@ from lsprotocol.types import (
     TextEdit,
     WorkspaceEdit,
 )
-from pygls.server import LanguageServer
+from pygls.lsp.server import LanguageServer
 
 from server.analyzer import AnalysisResult, analyze
 from server.completions import get_completions
