@@ -1,3 +1,4 @@
+import * as cp from "child_process";
 import * as path from "path";
 import * as vscode from "vscode";
 import {
@@ -15,6 +16,16 @@ export async function activate(context: vscode.ExtensionContext) {
   const serverModule = context.asAbsolutePath(
     path.join("server", "server.py")
   );
+
+  // Ensure Python server dependencies are installed
+  const depsOk = await ensureDependencies(pythonPath);
+  if (!depsOk) {
+    vscode.window.showErrorMessage(
+      "SKiDL Language Server: Failed to install Python dependencies (pygls, lsprotocol). " +
+      "Please install them manually: pip install pygls lsprotocol"
+    );
+    return;
+  }
 
   const serverOptions: ServerOptions = {
     command: pythonPath,
@@ -84,4 +95,50 @@ function getPythonPath(config: vscode.WorkspaceConfiguration): string {
 
   // Fallback
   return process.platform === "win32" ? "python" : "python3";
+}
+
+/**
+ * Check if pygls is importable. If not, install it (and lsprotocol) via pip.
+ * Returns true if dependencies are available after the check.
+ */
+async function ensureDependencies(pythonPath: string): Promise<boolean> {
+  const canImport = await runQuiet(pythonPath, ["-c", "import pygls"]);
+  if (canImport) {
+    return true;
+  }
+
+  const install = await vscode.window.showInformationMessage(
+    "SKiDL Language Server: Python dependencies (pygls, lsprotocol) are not installed. Install them now?",
+    "Install",
+    "Cancel"
+  );
+  if (install !== "Install") {
+    return false;
+  }
+
+  const success = await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "SKiDL: Installing Python dependencies...",
+      cancellable: false,
+    },
+    async () => {
+      return runQuiet(pythonPath, ["-m", "pip", "install", "pygls", "lsprotocol"]);
+    }
+  );
+
+  if (!success) {
+    return false;
+  }
+
+  // Verify the install worked
+  return runQuiet(pythonPath, ["-c", "import pygls"]);
+}
+
+function runQuiet(command: string, args: string[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    cp.execFile(command, args, { timeout: 60000 }, (err) => {
+      resolve(!err);
+    });
+  });
 }

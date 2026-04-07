@@ -50,9 +50,7 @@ Hover over any SKiDL construct to see documentation:
 2. In VS Code, open Extensions, click the `...` menu, and choose "Install from VSIX..."
 3. Select the `.vsix` file
 
-### Python Server Dependencies
-
-Install the language server dependencies into your Python environment:
+The extension will automatically detect and install the required Python dependencies (`pygls`, `lsprotocol`) on first activation. If auto-install fails, you can install them manually:
 
 ```bash
 pip install pygls lsprotocol
