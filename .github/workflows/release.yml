@@ -36,6 +36,10 @@ jobs:
       - name: Build VSIX
         run: npx vsce package --no-git-tag-version
 
+      - name: Publish to VS Code Marketplace
+        if: ${{ secrets.VSCE_PAT != '' }}
+        run: npx vsce publish -p "${{ secrets.VSCE_PAT }}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
