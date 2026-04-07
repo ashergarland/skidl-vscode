@@ -1,6 +1,6 @@
-# SKiDL Language Server — VS Code Extension
+# SKiDL Language Server - VS Code Extension
 
-Real-time language intelligence for [SKiDL](https://github.com/devbisme/skidl) Python files. Validates KiCad symbol names, footprint names, and pin names against your installed KiCad libraries **before you ever run the script**.
+A VS Code extension that provides real-time language intelligence for [SKiDL](https://github.com/devbisme/skidl) Python files. Validates KiCad symbol names, footprint names, and pin names against your installed KiCad libraries before you ever run the script.
 
 ## Features
 
@@ -8,47 +8,47 @@ Real-time language intelligence for [SKiDL](https://github.com/devbisme/skidl) P
 
 The extension underlines errors in real-time:
 
-- **Library validation** — `Part("Devce", ...)` → `KiCad symbol library 'Devce' not found. Did you mean: Device?`
-- **Symbol validation** — `Part("Device", "Resistor")` → `Symbol 'Resistor' not found in library 'Device'. Did you mean: R?`
-- **Footprint validation** — `footprint="Resistor_SMD:R_9999"` → `Footprint 'R_9999' not found in footprint library 'Resistor_SMD'`
-- **Pin validation** — `led1["X"]` → `Pin 'X' not found on symbol 'LED'. Available pins: A, K, 1, 2`
+- **Library validation**: `Part("Devce", ...)` flags the library name: `KiCad symbol library 'Devce' not found. Did you mean: Device?`
+- **Symbol validation**: `Part("Device", "Resistor")` flags the symbol: `Symbol 'Resistor' not found in library 'Device'. Did you mean: R?`
+- **Footprint validation**: `footprint="Resistor_SMD:R_9999"` flags the footprint: `Footprint 'R_9999' not found in footprint library 'Resistor_SMD'`
+- **Pin validation**: `led1["X"]` flags the pin: `Pin 'X' not found on symbol 'LED'. Available pins: A, K, 1, 2`
 
 ### Autocomplete
 
 Trigger smart completions as you type:
 
-- **Library names** — inside `Part("` → suggests `Device`, `Connector`, `Switch`, …
-- **Symbol names** — inside `Part("Device", "` → suggests `R`, `C`, `LED`, …
-- **Footprints** — inside `footprint="` → suggests `Resistor_SMD:R_0805_2012Metric`, …
-- **Pin names** — inside `part["` → suggests pin names for that specific symbol
+- **Library names**: inside `Part("` suggests `Device`, `Connector`, `Switch`, etc.
+- **Symbol names**: inside `Part("Device", "` suggests `R`, `C`, `LED`, etc.
+- **Footprints**: inside `footprint="` suggests `Resistor_SMD:R_0805_2012Metric`, etc.
+- **Pin names**: inside `part["` suggests pin names for that specific symbol
 
 ### Hover Documentation
 
 Hover over any SKiDL construct to see documentation:
 
-- **Part() calls** — symbol description, pin list, default footprint
-- **Pin references** — pin name, number, electrical type
-- **Footprint strings** — description and pad count
+- **Part() calls**: symbol description, pin list, default footprint
+- **Pin references**: pin name, number, electrical type
+- **Footprint strings**: description and pad count
 
 ### Quick-Fix Code Actions
 
-- "Did you mean?" replacements when a name is close to a valid one
-- Powered by fuzzy matching (Levenshtein distance)
+- **"Did you mean?"**: one-click replacements when a name is close to a valid one
+- **Fuzzy matching**: powered by fuzzy matching (Levenshtein distance)
 
 ## Requirements
 
-- **VS Code** 1.85+
-- **Python** 3.10+ with `pygls` and `lsprotocol` installed
-- **KiCad** 7, 8, 9, or 10 installed (for symbol/footprint libraries)
-- SKiDL is **not** required — the extension parses `.kicad_sym` files directly
+- VS Code 1.85+
+- Python 3.10+ with `pygls` and `lsprotocol` installed
+- KiCad 7, 8, 9, or 10 (for the symbol/footprint libraries)
+- SKiDL itself is **not** required. The extension parses `.kicad_sym` files directly.
 
 ## Installation
 
 ### From VSIX
 
-1. Build the extension (see Development below)
-2. In VS Code: `Extensions` → `…` → `Install from VSIX…`
-3. Select the generated `.vsix` file
+1. Build the extension (see [Development](#development) below)
+2. In VS Code, open Extensions, click the `...` menu, and choose "Install from VSIX..."
+3. Select the `.vsix` file
 
 ### Python Server Dependencies
 
@@ -91,7 +91,7 @@ If auto-detection doesn't work, set the paths explicitly:
 
 | Command | Description |
 |---------|-------------|
-| `SKiDL: Rebuild KiCad Library Index` | Re-scan KiCad libraries and rebuild the index |
+| `SKiDL: Rebuild KiCad Library Index` | Re-scan KiCad libraries and rebuild the in-memory index |
 
 ## Development
 
@@ -99,7 +99,6 @@ If auto-detection doesn't work, set the paths explicitly:
 
 - Node.js 18+
 - Python 3.10+
-- npm
 
 ### Setup
 
@@ -137,18 +136,18 @@ This creates a `.vsix` file you can install in VS Code.
 
 ## Architecture
 
-```
-src/extension.ts     — Thin TypeScript client (launches Python server, connects LSP)
-server/server.py     — pygls Language Server entry point
-server/indexer.py    — KiCad library discovery and indexing
-server/analyzer.py   — Python AST analysis for SKiDL patterns
-server/diagnostics.py — Diagnostic provider (error squiggles)
-server/completions.py — Completion provider (autocomplete)
-server/hover.py      — Hover documentation provider
-server/kicad_parser.py — .kicad_sym / .kicad_mod S-expression parser
-```
+| File | Purpose |
+|------|---------|
+| `src/extension.ts` | TypeScript LSP client (launches the Python server over stdio) |
+| `server/server.py` | pygls language server entry point |
+| `server/indexer.py` | KiCad library discovery and indexing |
+| `server/analyzer.py` | Python AST analysis for SKiDL patterns |
+| `server/diagnostics.py` | Diagnostic provider |
+| `server/completions.py` | Completion provider |
+| `server/hover.py` | Hover documentation provider |
+| `server/kicad_parser.py` | .kicad_sym / .kicad_mod S-expression parser |
 
-The **TypeScript side** is a minimal LSP client that launches the Python server over stdio. The **Python side** does all the heavy lifting: parsing KiCad files, analyzing Python ASTs, and providing language features.
+The **TypeScript side** is a minimal LSP client that launches the Python server over stdio. The Python server does the heavy lifting: parsing KiCad library files, walking the Python AST to find `Part()` calls and pin accesses, and validating everything against an in-memory index.
 
 ## How It Works
 
