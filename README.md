@@ -38,6 +38,18 @@ Hover over any SKiDL construct to see documentation:
 - **"Did you mean?"**: one-click replacements when a name is close to a valid one
 - **Fuzzy matching**: powered by fuzzy matching (Levenshtein distance)
 
+### Status Bar
+
+- **Progress indicator**: shows indexing status in the status bar while KiCad libraries are loading
+- **Click to rebuild**: click the status bar item to rebuild the index at any time
+
+### Performance
+
+- **Cached index**: the KiCad library index is cached to disk, keyed by directory fingerprint (file names, sizes, and modification times)
+- **First load**: ~45s for a full KiCad 10 install (222 symbol libs, 155 footprint libs)
+- **Cached load**: <1s on subsequent startups
+- **Auto-invalidation**: the cache rebuilds automatically when KiCad libraries change (e.g., after a KiCad version update)
+
 ## Requirements
 
 - VS Code 1.85+
@@ -47,13 +59,17 @@ Hover over any SKiDL construct to see documentation:
 
 ## Installation
 
-### From VSIX
+### From GitHub Releases
 
-1. Build the extension (see [Development](#development) below)
+1. Download the latest `.vsix` from [Releases](https://github.com/ashergarland/skidl-vscode/releases)
 2. In VS Code, open Extensions, click the `...` menu, and choose "Install from VSIX..."
-3. Select the `.vsix` file
+3. Select the downloaded `.vsix` file
 
-The extension will automatically detect and install the required Python dependencies (`pygls`, `lsprotocol`) on first activation. If auto-install fails, you can install them manually:
+### From Source
+
+See [Development](#development) below to build from source.
+
+The extension will automatically detect and install the required Python dependencies (`pygls`, `lsprotocol`) on first activation. If auto-install fails, install them manually:
 
 ```bash
 pip install pygls lsprotocol
@@ -74,7 +90,7 @@ pip install pygls lsprotocol
 
 The extension automatically finds KiCad libraries by checking:
 
-1. Environment variables: `KICAD9_SYMBOL_DIR`, `KICAD8_SYMBOL_DIR`, etc.
+1. Environment variables: `KICAD10_SYMBOL_DIR`, `KICAD9_SYMBOL_DIR`, `KICAD8_SYMBOL_DIR`, etc.
 2. Default install paths for your OS
 
 ### Manual Override
@@ -83,8 +99,8 @@ If auto-detection doesn't work, set the paths explicitly:
 
 ```json
 {
-  "skidl.kicadSymbolDir": "C:\\Program Files\\KiCad\\9.0\\share\\kicad\\symbols",
-  "skidl.kicadFootprintDir": "C:\\Program Files\\KiCad\\9.0\\share\\kicad\\footprints"
+  "skidl.kicadSymbolDir": "C:\\Program Files\\KiCad\\10.0\\share\\kicad\\symbols",
+  "skidl.kicadFootprintDir": "C:\\Program Files\\KiCad\\10.0\\share\\kicad\\footprints"
 }
 ```
 
@@ -92,7 +108,7 @@ If auto-detection doesn't work, set the paths explicitly:
 
 | Command | Description |
 |---------|-------------|
-| `SKiDL: Rebuild KiCad Library Index` | Re-scan KiCad libraries and rebuild the in-memory index |
+| `SKiDL: Rebuild KiCad Library Index` | Force a full rebuild of the KiCad library index (skips cache) |
 
 ## Development
 
@@ -104,36 +120,41 @@ If auto-detection doesn't work, set the paths explicitly:
 ### Setup
 
 ```bash
-# Install Node dependencies
 npm install
-
-# Install Python dependencies
-pip install -r requirements.txt
+pip install pygls lsprotocol pytest
 ```
 
 ### Build
 
 ```bash
-npm run compile
+npm run build          # compile TypeScript + package VSIX
+npm run compile        # compile TypeScript only
+npm run package        # package VSIX only
 ```
 
 ### Test
 
 ```bash
-# Python server tests
-npm run test:server
-
-# Or directly
-python -m pytest test/ -v
+npm test               # run all 76 Python server tests
 ```
 
-### Package
+### Release
 
 ```bash
-npm run package
+npm run release:patch  # bump patch version, build, commit, tag, push
+npm run release:minor  # bump minor version, build, commit, tag, push
+npm run release:major  # bump major version, build, commit, tag, push
 ```
 
-This creates a `.vsix` file you can install in VS Code.
+Pushing a `v*` tag triggers the [GitHub Actions release workflow](.github/workflows/release.yml) which runs tests and creates a GitHub Release with the VSIX attached.
+
+To bump version without releasing:
+
+```bash
+npm run version:patch  # 0.3.0 -> 0.3.1
+npm run version:minor  # 0.3.0 -> 0.4.0
+npm run version:major  # 0.3.0 -> 1.0.0
+```
 
 ## Architecture
 
@@ -141,19 +162,19 @@ This creates a `.vsix` file you can install in VS Code.
 |------|---------|
 | `src/extension.ts` | TypeScript LSP client (launches the Python server over stdio) |
 | `server/server.py` | pygls language server entry point |
-| `server/indexer.py` | KiCad library discovery and indexing |
+| `server/indexer.py` | KiCad library discovery, indexing, and caching |
 | `server/analyzer.py` | Python AST analysis for SKiDL patterns |
 | `server/diagnostics.py` | Diagnostic provider |
 | `server/completions.py` | Completion provider |
 | `server/hover.py` | Hover documentation provider |
-| `server/kicad_parser.py` | .kicad_sym / .kicad_mod S-expression parser |
+| `server/kicad_parser.py` | Streaming `.kicad_sym` / `.kicad_mod` parser (regex + bracket counting) |
 
-The **TypeScript side** is a minimal LSP client that launches the Python server over stdio. The Python server does the heavy lifting: parsing KiCad library files, walking the Python AST to find `Part()` calls and pin accesses, and validating everything against an in-memory index.
+The **TypeScript side** is a minimal LSP client that launches the Python server over stdio and manages the status bar indicator. The Python server does the heavy lifting: parsing KiCad library files with a streaming parser, walking the Python AST to find `Part()` calls and pin accesses, and validating everything against a cached in-memory index.
 
 ## How It Works
 
-1. On activation, the server scans your KiCad symbol (`.kicad_sym`) and footprint (`.pretty/`) directories
-2. It builds an in-memory index of all libraries, symbols, pins, and footprints
+1. On activation, the server checks for a cached index matching the current KiCad library directory fingerprint
+2. On cache miss, it scans all KiCad symbol (`.kicad_sym`) and footprint (`.pretty/`) files using a streaming parser, builds the index, and saves it to disk
 3. When you open or edit a Python file that imports `skidl`, it:
    - Parses the AST to find `Part()` calls and pin accesses
    - Validates library names, symbol names, footprints, and pins against the index
