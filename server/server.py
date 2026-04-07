@@ -128,8 +128,19 @@ def on_initialized(params):
 # Custom requests
 # ---------------------------------------------------------------------------
 
+@server.feature("skidl/refreshIndex")
+def on_refresh_index(params=None):
+    """Cache-aware refresh: only re-parses if libraries changed on disk."""
+    _do_rebuild(force=False)
+
+
 @server.feature("skidl/rebuildIndex")
 def on_rebuild_index(params=None):
+    """Force full re-parse, ignoring cache."""
+    _do_rebuild(force=True)
+
+
+def _do_rebuild(force: bool):
     sym_dir = server._settings.get("kicadSymbolDir", "")
     fp_dir = server._settings.get("kicadFootprintDir", "")
 
@@ -144,12 +155,12 @@ def on_rebuild_index(params=None):
             idx = build_index(
                 symbol_dir_override=sym_dir,
                 footprint_dir_override=fp_dir,
-                force=True,
+                force=force,
             )
             server.index = idx
             server._index_ready = True
             msg = f"{len(idx.symbols)} symbol libs, {len(idx.footprints)} footprint libs"
-            log.info("Index rebuilt: %s", msg)
+            log.info("Index rebuilt (force=%s): %s", force, msg)
             try:
                 server.protocol.notify("skidl/indexEnd", {"message": msg})
             except Exception:
@@ -166,7 +177,6 @@ def on_rebuild_index(params=None):
                 pass
 
     threading.Thread(target=_rebuild, daemon=True).start()
-    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------

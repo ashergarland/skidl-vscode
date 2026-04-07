@@ -2,7 +2,7 @@
   "name": "skidl-lsp",
   "displayName": "SKiDL Language Server",
   "description": "SKiDL Language Server: real-time KiCad symbol, footprint, and pin validation for SKiDL Python files",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "skidl-tools",
   "license": "MIT",
   "repository": {
@@ -31,8 +31,12 @@
   "contributes": {
     "commands": [
       {
+        "command": "skidl.refreshIndex",
+        "title": "SKiDL: Refresh KiCad Library Index"
+      },
+      {
         "command": "skidl.rebuildIndex",
-        "title": "SKiDL: Rebuild KiCad Library Index"
+        "title": "SKiDL: Force Rebuild KiCad Library Index"
       }
     ],
     "configuration": {

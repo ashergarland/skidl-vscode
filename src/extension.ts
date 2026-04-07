@@ -71,11 +71,23 @@ export async function activate(context: vscode.ExtensionContext) {
     clientOptions
   );
 
+  // Status bar click: cache-aware refresh (fast if nothing changed)
+  const refreshCmd = vscode.commands.registerCommand(
+    "skidl.refreshIndex",
+    () => {
+      if (client) {
+        client.sendNotification("skidl/refreshIndex");
+      }
+    }
+  );
+  context.subscriptions.push(refreshCmd);
+
+  // Command palette: force full re-parse ignoring cache
   const rebuildCmd = vscode.commands.registerCommand(
     "skidl.rebuildIndex",
-    async () => {
+    () => {
       if (client) {
-        await client.sendRequest("skidl/rebuildIndex");
+        client.sendNotification("skidl/rebuildIndex");
       }
     }
   );
@@ -86,7 +98,7 @@ export async function activate(context: vscode.ExtensionContext) {
   statusItem.name = "SKiDL";
   statusItem.text = "$(loading~spin) SKiDL: Starting...";
   statusItem.tooltip = "SKiDL Language Server is starting";
-  statusItem.command = "skidl.rebuildIndex";
+  statusItem.command = "skidl.refreshIndex";
   statusItem.show();
   context.subscriptions.push(statusItem);
 
@@ -102,7 +114,7 @@ export async function activate(context: vscode.ExtensionContext) {
     console.log(`[SKiDL] Index build finished: ${params?.message}`);
     outputChannel.appendLine(`Index ready: ${params?.message}`);
     statusItem.text = "$(circuit-board) SKiDL";
-    statusItem.tooltip = `SKiDL: ${params?.message || "Ready"} (click to rebuild)`;
+    statusItem.tooltip = `SKiDL: ${params?.message || "Ready"} (click to refresh)`;
   });
 
   outputChannel.appendLine("Starting language client...");
