@@ -76,10 +76,16 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
-    "test:server": "cd server && python -m pytest ../test/ -v",
+    "test": "python -m pytest test/ -v",
     "package": "vsce package --allow-missing-repository",
     "build": "npm run compile && npm run package",
-    "pretest": "npm run compile"
+    "pretest": "npm run compile",
+    "version:patch": "node scripts/bump-version.js patch",
+    "version:minor": "node scripts/bump-version.js minor",
+    "version:major": "node scripts/bump-version.js major",
+    "release:patch": "node scripts/bump-version.js patch && npm run build && node scripts/bump-version.js --tag",
+    "release:minor": "node scripts/bump-version.js minor && npm run build && node scripts/bump-version.js --tag",
+    "release:major": "node scripts/bump-version.js major && npm run build && node scripts/bump-version.js --tag"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
