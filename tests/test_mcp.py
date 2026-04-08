@@ -9,12 +9,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from server.indexer import LibraryIndex, build_index
-from server.mcp_server import (
+from core.indexer import LibraryIndex, build_index
+from mcp_server.server import (
     _get_index,
     get_completions,
+    get_documentation_at,
     get_footprint_info,
-    get_hover,
     get_symbol_info,
     list_footprint_libraries,
     list_footprints,
@@ -24,7 +24,7 @@ from server.mcp_server import (
     search_symbols,
     validate_skidl_code,
 )
-import server.mcp_server as mcp_mod
+import mcp_server.server as mcp_mod
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -104,7 +104,6 @@ class TestListLibraries:
 
     def test_contains_known_libs(self):
         result = list_libraries()
-        # Fixture has Device, Switch, Connector
         assert "Device" in result
 
 
@@ -214,7 +213,7 @@ class TestSearchFootprints:
 
 
 # ---------------------------------------------------------------------------
-# Completion / hover tools
+# Completion / documentation tools
 # ---------------------------------------------------------------------------
 
 class TestGetCompletions:
@@ -239,20 +238,18 @@ class TestGetCompletions:
         assert result == []
 
 
-class TestGetHover:
+class TestGetDocumentation:
     def setup_method(self):
         _install_fixture_index()
 
-    def test_hover_on_symbol(self):
+    def test_doc_on_symbol(self):
         src = 'from skidl import Part\nr1 = Part("Device", "R")'
-        # Cursor on "R" — need to find the right column
-        # "r1 = Part("Device", "R")" → "R" is at col 21
-        result = get_hover(src, line=1, character=22)
+        result = get_documentation_at(src, line=1, character=22)
         if result:
             assert "markdown" in result
             assert "R" in result["markdown"]
 
-    def test_hover_no_result(self):
+    def test_doc_no_result(self):
         src = 'from skidl import Part\nprint("hello")'
-        result = get_hover(src, line=1, character=0)
+        result = get_documentation_at(src, line=1, character=0)
         assert result is None

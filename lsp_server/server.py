@@ -1,6 +1,6 @@
-﻿"""SKiDL Language Server â€” pygls entry point.
+"""SKiDL Language Server -- pygls entry point.
 
-Launch with:  python server/server.py
+Launch with:  python -m lsp_server.server
 Communicates over stdio using the LSP protocol.
 """
 
@@ -11,7 +11,7 @@ import os
 import threading
 import sys
 
-# Ensure the extension root is on sys.path so "from server.xxx" imports work
+# Ensure the extension root is on sys.path so "from core.xxx" imports work
 # regardless of the working directory when the server is launched.
 _ext_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ext_root not in sys.path:
@@ -27,15 +27,21 @@ from lsprotocol.types import (
     CodeAction,
     CodeActionKind,
     CodeActionParams,
+    CompletionItem,
+    CompletionItemKind,
     CompletionList,
     CompletionOptions,
     CompletionParams,
+    Diagnostic,
+    DiagnosticSeverity,
     DidChangeTextDocumentParams,
     DidOpenTextDocumentParams,
     DidSaveTextDocumentParams,
     Hover,
     HoverParams,
     InitializeParams,
+    MarkupContent,
+    MarkupKind,
     Position,
     PublishDiagnosticsParams,
     Range,
@@ -44,11 +50,12 @@ from lsprotocol.types import (
 )
 from pygls.lsp.server import LanguageServer
 
-from server.analyzer import AnalysisResult, analyze
-from server.completions import get_completions
-from server.diagnostics import compute_diagnostics
-from server.hover import get_hover
-from server.indexer import LibraryIndex, build_index
+from core.analyzer import AnalysisResult, analyze
+from core.completions import get_suggestions
+from core.diagnostics import compute_validation_data
+from core.documentation import get_documentation
+from core.indexer import LibraryIndex, build_index
+from core.models import CompletionSuggestion, SymbolDocumentation, ValidationIssue
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,6 +64,80 @@ logging.basicConfig(
 )
 log = logging.getLogger("skidl-lsp")
 
+DIAG_SOURCE = "skidl"
+
+
+# ---------------------------------------------------------------------------
+# LSP type conversion helpers
+# ---------------------------------------------------------------------------
+
+_COMPLETION_KIND_MAP = {
+    "module": CompletionItemKind.Module,
+    "class": CompletionItemKind.Class,
+    "value": CompletionItemKind.Value,
+    "field": CompletionItemKind.Field,
+}
+
+_SEVERITY_MAP = {
+    "error": DiagnosticSeverity.Error,
+    "warning": DiagnosticSeverity.Warning,
+    "info": DiagnosticSeverity.Information,
+    "hint": DiagnosticSeverity.Hint,
+}
+
+
+def _make_range(span: tuple[int, int, int, int]) -> Range:
+    return Range(
+        start=Position(line=span[0], character=span[1]),
+        end=Position(line=span[2], character=span[3]),
+    )
+
+
+def _to_lsp_completions(items: list[CompletionSuggestion]) -> CompletionList:
+    return CompletionList(
+        is_incomplete=len(items) > 100,
+        items=[
+            CompletionItem(
+                label=d.label,
+                kind=_COMPLETION_KIND_MAP.get(d.kind, CompletionItemKind.Text),
+                detail=d.detail,
+                insert_text=d.insert_text,
+            )
+            for d in items
+        ],
+    )
+
+
+def _to_lsp_hover(result: SymbolDocumentation) -> Hover:
+    return Hover(
+        contents=MarkupContent(kind=MarkupKind.Markdown, value=result.markdown),
+        range=_make_range((result.start_line, result.start_col, result.end_line, result.end_col)),
+    )
+
+
+def _to_lsp_diagnostics(items: list[ValidationIssue]) -> list[Diagnostic]:
+    diags: list[Diagnostic] = []
+    for item in items:
+        data: dict = {"kind": item.kind, "value": item.value}
+        if item.suggestions:
+            data["suggestions"] = item.suggestions
+        if item.library:
+            data["library"] = item.library
+        if item.symbol:
+            data["symbol"] = item.symbol
+        diags.append(Diagnostic(
+            range=_make_range((item.start_line, item.start_col, item.end_line, item.end_col)),
+            message=item.message,
+            severity=_SEVERITY_MAP.get(item.severity, DiagnosticSeverity.Error),
+            source=DIAG_SOURCE,
+            data=data,
+        ))
+    return diags
+
+
+# ---------------------------------------------------------------------------
+# Server class
+# ---------------------------------------------------------------------------
 
 class SkidlLanguageServer(LanguageServer):
     def __init__(self):
@@ -223,7 +304,8 @@ def _validate(uri: str, source: str):
         _publish(uri, [])
         return
 
-    diags = compute_diagnostics(analysis, server.index)
+    issues = compute_validation_data(analysis, server.index)
+    diags = _to_lsp_diagnostics(issues)
     _publish(uri, diags)
 
 
@@ -243,7 +325,10 @@ def on_completion(params: CompletionParams) -> CompletionList | None:
     if not analysis:
         analysis = analyze(doc.source)
         server._analyses[doc.uri] = analysis
-    return get_completions(doc.source, params.position, analysis, server.index)
+    items = get_suggestions(doc.source, params.position.line, params.position.character, analysis, server.index)
+    if items is None:
+        return None
+    return _to_lsp_completions(items)
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +344,10 @@ def on_hover(params: HoverParams) -> Hover | None:
     if not analysis:
         analysis = analyze(doc.source)
         server._analyses[doc.uri] = analysis
-    return get_hover(doc.source, params.position, analysis, server.index)
+    result = get_documentation(doc.source, params.position.line, params.position.character, analysis, server.index)
+    if not result:
+        return None
+    return _to_lsp_hover(result)
 
 
 # ---------------------------------------------------------------------------
@@ -301,4 +389,3 @@ def on_code_action(params: CodeActionParams) -> list[CodeAction]:
 
 if __name__ == "__main__":
     server.start_io()
-

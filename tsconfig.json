@@ -4,7 +4,7 @@
     "target": "ES2020",
     "lib": ["ES2020"],
     "outDir": "out",
-    "rootDir": "src",
+    "rootDir": "vscode_extension",
     "sourceMap": true,
     "strict": true,
     "esModuleInterop": true,
@@ -12,5 +12,5 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "exclude": ["node_modules", "out", "server", "test"]
+  "exclude": ["node_modules", "out", "core", "lsp_server", "mcp_server", "tests"]
 }

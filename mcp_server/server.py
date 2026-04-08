@@ -1,10 +1,10 @@
 """MCP server for SKiDL -- exposes KiCad library validation and browsing as tools.
 
 Run with:
-    python server/mcp_server.py
+    python -m mcp_server.server
 
 Or configure as an MCP server in Claude Desktop / VS Code:
-    { "command": "python", "args": ["server/mcp_server.py"] }
+    { "command": "python", "args": ["mcp_server/server.py"] }
 """
 
 from __future__ import annotations
@@ -18,16 +18,16 @@ from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
-# Ensure the server package is importable when run as a script
+# Ensure the extension root is on sys.path so "from core.xxx" imports work
 _SERVER_DIR = Path(__file__).resolve().parent
 if str(_SERVER_DIR.parent) not in sys.path:
     sys.path.insert(0, str(_SERVER_DIR.parent))
 
-from server.analyzer import analyze
-from server.completions import get_completions_data
-from server.diagnostics import compute_diagnostics_data
-from server.hover import get_hover_data
-from server.indexer import LibraryIndex, build_index
+from core.analyzer import analyze
+from core.completions import get_suggestions
+from core.diagnostics import compute_validation_data
+from core.documentation import get_documentation
+from core.indexer import LibraryIndex, build_index
 
 log = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ def validate_skidl_code(source: str) -> list[dict]:
     """
     index = _get_index()
     analysis = analyze(source)
-    items = compute_diagnostics_data(analysis, index)
+    items = compute_validation_data(analysis, index)
     return [
         {
             "message": d.message,
@@ -327,7 +327,7 @@ def search_footprints(query: str, limit: int = 10) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Completion / hover tools (full LSP-equivalent for AI agents)
+# Completion / documentation tools (full LSP-equivalent for AI agents)
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
@@ -341,7 +341,7 @@ def get_completions(source: str, line: int, character: int) -> list[dict]:
     """
     index = _get_index()
     analysis = analyze(source)
-    items = get_completions_data(source, line, character, analysis, index)
+    items = get_suggestions(source, line, character, analysis, index)
     if items is None:
         return []
     return [
@@ -351,8 +351,8 @@ def get_completions(source: str, line: int, character: int) -> list[dict]:
 
 
 @mcp.tool()
-def get_hover(source: str, line: int, character: int) -> Optional[dict]:
-    """Get hover documentation for a position in SKiDL source code.
+def get_documentation_at(source: str, line: int, character: int) -> Optional[dict]:
+    """Get documentation for a position in SKiDL source code.
 
     Args:
         source: Full Python source code
@@ -361,7 +361,7 @@ def get_hover(source: str, line: int, character: int) -> Optional[dict]:
     """
     index = _get_index()
     analysis = analyze(source)
-    result = get_hover_data(source, line, character, analysis, index)
+    result = get_documentation(source, line, character, analysis, index)
     if not result:
         return None
     return {

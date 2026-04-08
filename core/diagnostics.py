@@ -1,49 +1,28 @@
-"""Diagnostic provider for SKiDL files.
+"""Validation provider for SKiDL files.
 
 Validates Part() calls (library, symbol, footprint) and pin accesses
-against the KiCad library index, producing LSP Diagnostic objects.
+against the KiCad library index, producing ValidationIssue dataclasses.
 """
 
 from __future__ import annotations
 
 import difflib
 import logging
-from typing import List
-
-from lsprotocol.types import (
-    Diagnostic,
-    DiagnosticSeverity,
-    Position,
-    Range,
-)
 
 from .analyzer import AnalysisResult, PartCall, PinAccess
 from .indexer import LibraryIndex
-from .models import DiagnosticItem
+from .models import ValidationIssue
 
 log = logging.getLogger(__name__)
-
-DIAG_SOURCE = "skidl"
-
-
-def _range_from_span(span: tuple[int, int, int, int]) -> Range:
-    return Range(
-        start=Position(line=span[0], character=span[1]),
-        end=Position(line=span[2], character=span[3]),
-    )
 
 
 def _close_matches(word: str, candidates: list[str], n: int = 3, cutoff: float = 0.6) -> list[str]:
     return difflib.get_close_matches(word, candidates, n=n, cutoff=cutoff)
 
 
-# -------------------------------------------------------------------
-# Pure-data diagnostic generation (no LSP types)
-# -------------------------------------------------------------------
-
-def compute_diagnostics_data(analysis: AnalysisResult, index: LibraryIndex) -> list[DiagnosticItem]:
-    """Return diagnostics as plain dataclasses (no LSP dependency)."""
-    items: list[DiagnosticItem] = []
+def compute_validation_data(analysis: AnalysisResult, index: LibraryIndex) -> list[ValidationIssue]:
+    """Return validation issues as plain dataclasses (no LSP dependency)."""
+    items: list[ValidationIssue] = []
 
     if not analysis.is_skidl_file:
         return items
@@ -57,8 +36,8 @@ def compute_diagnostics_data(analysis: AnalysisResult, index: LibraryIndex) -> l
     return items
 
 
-def _validate_part_data(pc: PartCall, index: LibraryIndex) -> list[DiagnosticItem]:
-    items: list[DiagnosticItem] = []
+def _validate_part_data(pc: PartCall, index: LibraryIndex) -> list[ValidationIssue]:
+    items: list[ValidationIssue] = []
 
     # --- Library name ---
     if pc.library:
@@ -68,7 +47,7 @@ def _validate_part_data(pc: PartCall, index: LibraryIndex) -> list[DiagnosticIte
             msg = f"KiCad symbol library '{pc.library}' not found"
             if suggestions:
                 msg += f". Did you mean: {', '.join(suggestions)}?"
-            items.append(DiagnosticItem(
+            items.append(ValidationIssue(
                 message=msg, severity="error", kind="library",
                 value=pc.library, suggestions=suggestions,
                 start_line=span[0], start_col=span[1],
@@ -85,7 +64,7 @@ def _validate_part_data(pc: PartCall, index: LibraryIndex) -> list[DiagnosticIte
             msg = f"Symbol '{pc.symbol}' not found in library '{pc.library}'"
             if suggestions:
                 msg += f". Did you mean: {', '.join(suggestions)}?"
-            items.append(DiagnosticItem(
+            items.append(ValidationIssue(
                 message=msg, severity="error", kind="symbol",
                 value=pc.symbol, suggestions=suggestions,
                 library=pc.library,
@@ -102,7 +81,7 @@ def _validate_part_data(pc: PartCall, index: LibraryIndex) -> list[DiagnosticIte
             msg = f"Footprint library '{fp_lib}' not found"
             if suggestions:
                 msg += f". Did you mean: {', '.join(suggestions)}?"
-            items.append(DiagnosticItem(
+            items.append(ValidationIssue(
                 message=msg, severity="error", kind="fp_library",
                 value=fp_lib, suggestions=suggestions,
                 start_line=span[0], start_col=span[1],
@@ -115,7 +94,7 @@ def _validate_part_data(pc: PartCall, index: LibraryIndex) -> list[DiagnosticIte
             msg = f"Footprint '{fp_name}' not found in footprint library '{fp_lib}'"
             if suggestions:
                 msg += f". Did you mean: {', '.join(suggestions)}?"
-            items.append(DiagnosticItem(
+            items.append(ValidationIssue(
                 message=msg, severity="error", kind="footprint",
                 value=fp_name, suggestions=suggestions,
                 library=fp_lib,
@@ -126,8 +105,8 @@ def _validate_part_data(pc: PartCall, index: LibraryIndex) -> list[DiagnosticIte
     return items
 
 
-def _validate_pin_data(pa: PinAccess, analysis: AnalysisResult, index: LibraryIndex) -> list[DiagnosticItem]:
-    items: list[DiagnosticItem] = []
+def _validate_pin_data(pa: PinAccess, analysis: AnalysisResult, index: LibraryIndex) -> list[ValidationIssue]:
+    items: list[ValidationIssue] = []
     pc = analysis.var_to_part.get(pa.variable)
     if not pc or not pc.library or not pc.symbol:
         return items
@@ -146,7 +125,7 @@ def _validate_pin_data(pa: PinAccess, analysis: AnalysisResult, index: LibraryIn
         if len(all_pins) > 20:
             available += ", ..."
         msg = f"Pin '{pa.pin}' not found on symbol '{pc.symbol}'. Available pins: {available}"
-        items.append(DiagnosticItem(
+        items.append(ValidationIssue(
             message=msg, severity="error", kind="pin",
             value=pa.pin, symbol=pc.symbol,
             start_line=span[0], start_col=span[1],
@@ -154,37 +133,3 @@ def _validate_pin_data(pa: PinAccess, analysis: AnalysisResult, index: LibraryIn
         ))
 
     return items
-
-
-# -------------------------------------------------------------------
-# LSP wrapper (converts DiagnosticItem → lsprotocol Diagnostic)
-# -------------------------------------------------------------------
-
-_SEVERITY_MAP = {
-    "error": DiagnosticSeverity.Error,
-    "warning": DiagnosticSeverity.Warning,
-    "info": DiagnosticSeverity.Information,
-    "hint": DiagnosticSeverity.Hint,
-}
-
-
-def compute_diagnostics(analysis: AnalysisResult, index: LibraryIndex) -> List[Diagnostic]:
-    """Return LSP diagnostics for the given analysis result."""
-    items = compute_diagnostics_data(analysis, index)
-    diags: list[Diagnostic] = []
-    for item in items:
-        data: dict = {"kind": item.kind, "value": item.value}
-        if item.suggestions:
-            data["suggestions"] = item.suggestions
-        if item.library:
-            data["library"] = item.library
-        if item.symbol:
-            data["symbol"] = item.symbol
-        diags.append(Diagnostic(
-            range=_range_from_span((item.start_line, item.start_col, item.end_line, item.end_col)),
-            message=item.message,
-            severity=_SEVERITY_MAP.get(item.severity, DiagnosticSeverity.Error),
-            source=DIAG_SOURCE,
-            data=data,
-        ))
-    return diags

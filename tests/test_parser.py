@@ -6,7 +6,7 @@ from pathlib import Path
 # Ensure the server package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from server.kicad_parser import parse_kicad_sym, parse_kicad_mod, parse_sexpr
+from core.kicad_parser import parse_kicad_sym, parse_kicad_mod, parse_sexpr
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 

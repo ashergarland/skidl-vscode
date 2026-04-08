@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from server.analyzer import analyze
+from core.analyzer import analyze
 
 
 SMOKE_TEST = '''\

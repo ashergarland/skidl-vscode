@@ -1,6 +1,6 @@
 """Shared response models for LSP and MCP interfaces.
 
-These plain dataclasses decouple validation/completion/hover logic from
+These plain dataclasses decouple validation/completion/documentation logic from
 LSP-specific types, allowing the same core to serve both the Language
 Server and the MCP server.
 """
@@ -12,7 +12,7 @@ from typing import Optional
 
 
 @dataclass
-class DiagnosticItem:
+class ValidationIssue:
     message: str
     severity: str  # "error" | "warning" | "info" | "hint"
     kind: str  # "library" | "symbol" | "footprint" | "fp_library" | "pin"
@@ -28,7 +28,7 @@ class DiagnosticItem:
 
 
 @dataclass
-class CompletionItemData:
+class CompletionSuggestion:
     label: str
     kind: str  # "module" | "class" | "value" | "field"
     detail: str = ""
@@ -36,7 +36,7 @@ class CompletionItemData:
 
 
 @dataclass
-class HoverResult:
+class SymbolDocumentation:
     markdown: str
     start_line: int = 0
     start_col: int = 0

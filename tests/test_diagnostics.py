@@ -1,13 +1,13 @@
-"""Tests for diagnostics.py — validation against the library index."""
+"""Tests for diagnostics.py -- validation against the library index."""
 
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from server.analyzer import analyze
-from server.diagnostics import compute_diagnostics
-from server.indexer import LibraryIndex, build_index
+from core.analyzer import analyze
+from core.diagnostics import compute_validation_data
+from core.indexer import LibraryIndex, build_index
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -61,48 +61,47 @@ class TestDiagnostics:
     def test_valid_script_no_errors(self):
         index = _build_fixture_index()
         analysis = analyze(VALID_SCRIPT)
-        diags = compute_diagnostics(analysis, index)
-        assert len(diags) == 0
+        issues = compute_validation_data(analysis, index)
+        assert len(issues) == 0
 
     def test_bad_library_name(self):
         index = _build_fixture_index()
         analysis = analyze(BAD_LIBRARY)
-        diags = compute_diagnostics(analysis, index)
-        assert len(diags) == 1
-        assert "not found" in diags[0].message
-        assert "Devce" in diags[0].message
+        issues = compute_validation_data(analysis, index)
+        assert len(issues) == 1
+        assert "not found" in issues[0].message
+        assert "Devce" in issues[0].message
 
     def test_bad_library_suggests(self):
         index = _build_fixture_index()
         analysis = analyze(BAD_LIBRARY)
-        diags = compute_diagnostics(analysis, index)
-        assert diags[0].data["suggestions"]
-        # "Device" should be in suggestions
-        assert "Device" in diags[0].data["suggestions"]
+        issues = compute_validation_data(analysis, index)
+        assert issues[0].suggestions
+        assert "Device" in issues[0].suggestions
 
     def test_bad_symbol_name(self):
         index = _build_fixture_index()
         analysis = analyze(BAD_SYMBOL)
-        diags = compute_diagnostics(analysis, index)
-        assert len(diags) == 1
-        assert "Resistor" in diags[0].message
+        issues = compute_validation_data(analysis, index)
+        assert len(issues) == 1
+        assert "Resistor" in issues[0].message
 
     def test_bad_footprint(self):
         index = _build_fixture_index()
         analysis = analyze(BAD_FOOTPRINT)
-        diags = compute_diagnostics(analysis, index)
-        assert len(diags) == 1
-        assert "R_9999_Nonexistent" in diags[0].message
+        issues = compute_validation_data(analysis, index)
+        assert len(issues) == 1
+        assert "R_9999_Nonexistent" in issues[0].message
 
     def test_bad_pin(self):
         index = _build_fixture_index()
         analysis = analyze(BAD_PIN)
-        diags = compute_diagnostics(analysis, index)
-        assert len(diags) == 1
-        assert "Pin 'X'" in diags[0].message
+        issues = compute_validation_data(analysis, index)
+        assert len(issues) == 1
+        assert "Pin 'X'" in issues[0].message
 
     def test_non_skidl_file_no_diags(self):
         index = _build_fixture_index()
         analysis = analyze("import os\nx = 1\n")
-        diags = compute_diagnostics(analysis, index)
-        assert len(diags) == 0
+        issues = compute_validation_data(analysis, index)
+        assert len(issues) == 0

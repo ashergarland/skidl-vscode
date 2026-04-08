@@ -111,7 +111,7 @@ If auto-detection doesn't work, set the paths explicitly:
 |---------|-------------|
 | `SKiDL: Refresh KiCad Library Index` | Reload the library index, using the cache if it's still valid |
 | `SKiDL: Force Rebuild KiCad Library Index` | Force a full rebuild of the KiCad library index (skips cache) |
-| `SKiDL: Copy MCP Server Path` | Copy the MCP server file path to clipboard (for AI agent configuration) |
+| `SKiDL: Enable MCP Integration` | Configure the MCP server for VS Code, Claude Desktop, or clipboard |
 
 ## Development
 
@@ -181,13 +181,15 @@ AI Agent  <--stdio-->  MCP Server  -->  KiCad Libraries (local)
 
 ### Setup
 
-**If you installed the VS Code extension from the Marketplace**, the MCP server and all dependencies are already on your machine. To get the server path:
+**Automatic setup (recommended):**
 
 1. Open the Command Palette (`Ctrl+Shift+P`)
-2. Run **SKiDL: Copy MCP Server Path**
-3. Paste the path into your MCP client configuration (see below)
+2. Run **SKiDL: Enable MCP Integration**
+3. Choose your target: VS Code workspace, Claude Desktop, or clipboard
 
-**If you're setting up from source:**
+The command auto-detects your Python path and KiCad library overrides, writes the config file, and merges with any existing MCP server entries.
+
+**Manual setup from source:**
 
 ```bash
 git clone https://github.com/ashergarland/skidl-vscode.git
@@ -195,15 +197,13 @@ cd skidl-vscode
 pip install pygls lsprotocol mcp
 ```
 
-**2. Configure your AI client:**
-
 **Claude Desktop** (`claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
-    "skidl": {
+    "skidl-kicad": {
       "command": "python",
-      "args": ["/path/to/skidl-vscode/server/mcp_server.py"]
+      "args": ["/path/to/skidl-vscode/mcp_server/server.py"]
     }
   }
 }
@@ -213,9 +213,9 @@ pip install pygls lsprotocol mcp
 ```json
 {
   "servers": {
-    "skidl": {
+    "skidl-kicad": {
       "command": "python",
-      "args": ["${workspaceFolder}/server/mcp_server.py"]
+      "args": ["${workspaceFolder}/mcp_server/server.py"]
     }
   }
 }
@@ -305,23 +305,28 @@ The agent can then fix the code and re-validate -- creating a tight generate/val
 | `search_symbols` | Fuzzy-search symbols across all libraries |
 | `search_footprints` | Fuzzy-search footprints across all libraries |
 | `get_completions` | Autocomplete suggestions for a source position |
-| `get_hover` | Hover documentation for a source position |
+| `get_documentation_at` | Documentation for a source position |
 | `rebuild_index` | Force rebuild the KiCad library index |
 
 ## Architecture
 
+| Directory | Purpose |
+|-----------|---------|
+| `vscode_extension/` | TypeScript LSP client (launches the Python server over stdio) |
+| `core/` | Pure Python analysis, validation, and documentation logic (no LSP/MCP deps) |
+| `lsp_server/` | pygls language server entry point + LSP type conversion |
+| `mcp_server/` | FastMCP server entry point (AI agent interface) |
+| `tests/` | pytest test suite with KiCad fixture libraries |
+
 | File | Purpose |
 |------|---------|
-| `src/extension.ts` | TypeScript LSP client (launches the Python server over stdio) |
-| `server/server.py` | pygls language server entry point |
-| `server/mcp_server.py` | MCP server entry point (AI agent interface) |
-| `server/models.py` | Shared response models (decoupled from LSP types) |
-| `server/indexer.py` | KiCad library discovery, indexing, and caching |
-| `server/analyzer.py` | Python AST analysis for SKiDL patterns |
-| `server/diagnostics.py` | Diagnostic provider |
-| `server/completions.py` | Completion provider |
-| `server/hover.py` | Hover documentation provider |
-| `server/kicad_parser.py` | Streaming `.kicad_sym` / `.kicad_mod` parser (regex + bracket counting) |
+| `core/analyzer.py` | Python AST analysis for SKiDL patterns |
+| `core/models.py` | Shared response models (`ValidationIssue`, `CompletionSuggestion`, `SymbolDocumentation`) |
+| `core/indexer.py` | KiCad library discovery, indexing, and caching |
+| `core/diagnostics.py` | Validation provider |
+| `core/completions.py` | Completion provider |
+| `core/documentation.py` | Symbol/pin/footprint documentation provider |
+| `core/kicad_parser.py` | Streaming `.kicad_sym` / `.kicad_mod` parser (regex + bracket counting) |
 
 The **TypeScript side** is a minimal LSP client that launches the Python server over stdio and manages the status bar indicator. The Python server does the heavy lifting: parsing KiCad library files with a streaming parser, walking the Python AST to find `Part()` calls and pin accesses, and validating everything against a cached in-memory index.
 

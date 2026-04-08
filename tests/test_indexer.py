@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from server.indexer import build_index
+from core.indexer import build_index
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 

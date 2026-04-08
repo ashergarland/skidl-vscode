@@ -29,7 +29,7 @@ export async function activate(context: vscode.ExtensionContext) {
   outputChannel.appendLine(`Python exists on disk: ${fs.existsSync(pythonPath)}`);
   console.log(`[SKiDL] Python path: ${pythonPath}, exists: ${fs.existsSync(pythonPath)}`);
   const serverModule = context.asAbsolutePath(
-    path.join("server", "server.py")
+    path.join("lsp_server", "server.py")
   );
 
   // Ensure Python server dependencies are installed
@@ -44,16 +44,34 @@ export async function activate(context: vscode.ExtensionContext) {
     return;
   }
 
-  // Command: copy MCP server path to clipboard
-  const mcpPathCmd = vscode.commands.registerCommand(
-    "skidl.copyMcpServerPath",
-    () => {
-      const mcpPath = context.asAbsolutePath(path.join("server", "mcp_server.py"));
-      vscode.env.clipboard.writeText(mcpPath);
-      vscode.window.showInformationMessage(`MCP server path copied: ${mcpPath}`);
+  // Command: setup MCP integration
+  const mcpSetupCmd = vscode.commands.registerCommand(
+    "skidl.setupMcpServer",
+    async () => {
+      const mcpPath = context.asAbsolutePath(path.join("mcp_server", "server.py"));
+      const picked = await vscode.window.showQuickPick(
+        [
+          { label: "VS Code (workspace)", description: "Write .vscode/mcp.json in current workspace", id: "vscode" },
+          { label: "Claude Desktop", description: "Update Claude Desktop config file", id: "claude" },
+          { label: "Copy to clipboard", description: "Copy JSON config snippet to clipboard", id: "clipboard" },
+        ],
+        { placeHolder: "Where should the MCP server be configured?" }
+      );
+      if (!picked) { return; }
+
+      const snippet = buildMcpConfigSnippet(pythonPath, mcpPath, config);
+
+      if (picked.id === "vscode") {
+        await writeVsCodeMcpConfig(snippet);
+      } else if (picked.id === "claude") {
+        await writeClaudeDesktopConfig(snippet);
+      } else {
+        await vscode.env.clipboard.writeText(JSON.stringify(snippet, null, 2));
+        vscode.window.showInformationMessage("MCP config copied to clipboard.");
+      }
     }
   );
-  context.subscriptions.push(mcpPathCmd);
+  context.subscriptions.push(mcpSetupCmd);
 
   const serverOptions: ServerOptions = {
     command: pythonPath,
@@ -258,4 +276,93 @@ function runQuiet(command: string, args: string[]): Promise<boolean> {
       resolve(!err);
     });
   });
+}
+
+// ---------------------------------------------------------------------------
+// MCP integration helpers
+// ---------------------------------------------------------------------------
+
+interface McpServerConfig {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+function buildMcpConfigSnippet(
+  pythonPath: string,
+  mcpServerPath: string,
+  config: vscode.WorkspaceConfiguration
+): McpServerConfig {
+  const snippet: McpServerConfig = {
+    command: pythonPath,
+    args: [mcpServerPath],
+  };
+  const symDir = config.get<string>("kicadSymbolDir", "");
+  const fpDir = config.get<string>("kicadFootprintDir", "");
+  if (symDir || fpDir) {
+    snippet.env = {};
+    if (symDir) { snippet.env.SKIDL_KICAD_SYMBOL_DIR = symDir; }
+    if (fpDir) { snippet.env.SKIDL_KICAD_FOOTPRINT_DIR = fpDir; }
+  }
+  return snippet;
+}
+
+async function writeVsCodeMcpConfig(snippet: McpServerConfig): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    vscode.window.showErrorMessage("No workspace folder open. Open a folder first.");
+    return;
+  }
+  const dotVscode = vscode.Uri.joinPath(folders[0].uri, ".vscode");
+  const mcpJsonUri = vscode.Uri.joinPath(dotVscode, "mcp.json");
+
+  let existing: Record<string, unknown> = {};
+  try {
+    const raw = await vscode.workspace.fs.readFile(mcpJsonUri);
+    existing = JSON.parse(Buffer.from(raw).toString("utf-8"));
+  } catch {
+    // File doesn't exist yet, start fresh
+  }
+
+  // Merge under servers.skidl-kicad, preserving other servers
+  if (!existing.servers || typeof existing.servers !== "object") {
+    existing.servers = {};
+  }
+  (existing.servers as Record<string, unknown>)["skidl-kicad"] = snippet;
+
+  // Ensure .vscode directory exists
+  try { await vscode.workspace.fs.createDirectory(dotVscode); } catch { /* already exists */ }
+  const content = Buffer.from(JSON.stringify(existing, null, 2) + "\n", "utf-8");
+  await vscode.workspace.fs.writeFile(mcpJsonUri, content);
+  vscode.window.showInformationMessage("MCP server configured in .vscode/mcp.json");
+}
+
+async function writeClaudeDesktopConfig(snippet: McpServerConfig): Promise<void> {
+  let configDir: string;
+  if (process.platform === "win32") {
+    configDir = path.join(process.env.APPDATA || "", "Claude");
+  } else if (process.platform === "darwin") {
+    configDir = path.join(process.env.HOME || "", "Library", "Application Support", "Claude");
+  } else {
+    configDir = path.join(process.env.HOME || "", ".config", "Claude");
+  }
+  const configPath = path.join(configDir, "claude_desktop_config.json");
+
+  let existing: Record<string, unknown> = {};
+  try {
+    const raw = fs.readFileSync(configPath, "utf-8");
+    existing = JSON.parse(raw);
+  } catch {
+    // File doesn't exist yet
+  }
+
+  if (!existing.mcpServers || typeof existing.mcpServers !== "object") {
+    existing.mcpServers = {};
+  }
+  (existing.mcpServers as Record<string, unknown>)["skidl-kicad"] = snippet;
+
+  // Ensure directory exists
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
+  vscode.window.showInformationMessage(`MCP server configured in ${configPath}`);
 }

@@ -41,8 +41,8 @@
         "title": "SKiDL: Force Rebuild KiCad Library Index"
       },
       {
-        "command": "skidl.copyMcpServerPath",
-        "title": "SKiDL: Copy MCP Server Path"
+        "command": "skidl.setupMcpServer",
+        "title": "SKiDL: Enable MCP Integration"
       }
     ],
     "configuration": {
@@ -86,7 +86,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
-    "test": "python -m pytest test/ -v",
+    "test": "python -m pytest tests/ -v",
     "package": "vsce package --allow-missing-repository",
     "build": "npm run compile && npm run package",
     "pretest": "npm run compile",
