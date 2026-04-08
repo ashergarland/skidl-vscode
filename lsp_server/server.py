@@ -51,11 +51,13 @@ from lsprotocol.types import (
 from pygls.lsp.server import LanguageServer
 
 from core.analyzer import AnalysisResult, analyze
+from core.bom import generate_bom
 from core.completions import get_suggestions
 from core.diagnostics import compute_validation_data
 from core.documentation import get_documentation
 from core.indexer import LibraryIndex, build_index
 from core.models import CompletionSuggestion, SymbolDocumentation, ValidationIssue
+from core.search import search_footprints, search_symbols
 
 logging.basicConfig(
     level=logging.INFO,
@@ -381,6 +383,98 @@ def on_code_action(params: CodeActionParams) -> list[CodeAction]:
                 ),
             ))
     return actions
+
+
+# ---------------------------------------------------------------------------
+# Custom requests: Browse
+# ---------------------------------------------------------------------------
+
+@server.feature("skidl/searchSymbols")
+def on_search_symbols(params):
+    query = params.get("query", "") if isinstance(params, dict) else ""
+    limit = params.get("limit", 50) if isinstance(params, dict) else 50
+    results = search_symbols(query, server.index, limit)
+    return [
+        {"library": r.library, "name": r.name, "description": r.description}
+        for r in results
+    ]
+
+
+@server.feature("skidl/searchFootprints")
+def on_search_footprints(params):
+    query = params.get("query", "") if isinstance(params, dict) else ""
+    limit = params.get("limit", 50) if isinstance(params, dict) else 50
+    results = search_footprints(query, server.index, limit)
+    return [
+        {"library": r.library, "name": r.name, "description": r.description, "pad_count": r.pad_count}
+        for r in results
+    ]
+
+
+@server.feature("skidl/getSymbolInfo")
+def on_get_symbol_info(params):
+    library = params.get("library", "") if isinstance(params, dict) else ""
+    symbol = params.get("symbol", "") if isinstance(params, dict) else ""
+    sym = server.index.get_symbol(library, symbol)
+    if not sym:
+        return None
+    return {
+        "name": sym.name,
+        "library": sym.library,
+        "description": sym.description,
+        "default_footprint": sym.default_footprint,
+        "keywords": sym.keywords,
+        "pins": [
+            {"name": p.name, "number": p.number, "electrical_type": p.electrical_type}
+            for p in sym.pins
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Custom requests: BOM + Validate
+# ---------------------------------------------------------------------------
+
+@server.feature("skidl/generateBom")
+def on_generate_bom(params):
+    uri = params.get("uri", "") if isinstance(params, dict) else ""
+    doc = server.workspace.get_text_document(uri)
+    entries = generate_bom(doc.source, server.index)
+    return [
+        {
+            "reference": e.reference,
+            "library": e.library,
+            "symbol": e.symbol,
+            "footprint": e.footprint,
+            "description": e.description,
+            "quantity": e.quantity,
+        }
+        for e in entries
+    ]
+
+
+@server.feature("skidl/validateDesign")
+def on_validate_design(params):
+    uri = params.get("uri", "") if isinstance(params, dict) else ""
+    doc = server.workspace.get_text_document(uri)
+    analysis = analyze(doc.source)
+    issues = compute_validation_data(analysis, server.index)
+    return [
+        {
+            "message": d.message,
+            "severity": d.severity,
+            "kind": d.kind,
+            "value": d.value,
+            "suggestions": d.suggestions,
+            "location": {
+                "start_line": d.start_line,
+                "start_col": d.start_col,
+                "end_line": d.end_line,
+                "end_col": d.end_col,
+            },
+        }
+        for d in issues
+    ]
 
 
 # ---------------------------------------------------------------------------

@@ -43,6 +43,22 @@
       {
         "command": "skidl.setupMcpServer",
         "title": "SKiDL: Enable MCP Integration"
+      },
+      {
+        "command": "skidl.browseComponents",
+        "title": "SKiDL: Browse Components"
+      },
+      {
+        "command": "skidl.browseFootprints",
+        "title": "SKiDL: Browse Footprints"
+      },
+      {
+        "command": "skidl.generateBom",
+        "title": "SKiDL: Generate BOM"
+      },
+      {
+        "command": "skidl.validateDesign",
+        "title": "SKiDL: Validate Design"
       }
     ],
     "configuration": {

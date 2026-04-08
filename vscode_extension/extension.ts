@@ -73,6 +73,225 @@ export async function activate(context: vscode.ExtensionContext) {
   );
   context.subscriptions.push(mcpSetupCmd);
 
+  // Command: Browse Components
+  const browseComponentsCmd = vscode.commands.registerCommand(
+    "skidl.browseComponents",
+    async () => {
+      if (!client) { return; }
+      const qp = vscode.window.createQuickPick<vscode.QuickPickItem & { _library?: string }>();
+      qp.placeholder = "Type to search KiCad symbols (e.g. 'LED', 'resistor', 'ESP32')...";
+      qp.matchOnDescription = true;
+      qp.matchOnDetail = true;
+
+      let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+      qp.onDidChangeValue((value) => {
+        if (debounceTimer) { clearTimeout(debounceTimer); }
+        if (value.length < 2) {
+          qp.items = [];
+          return;
+        }
+        qp.busy = true;
+        debounceTimer = setTimeout(async () => {
+          try {
+            const results: Array<{ library: string; name: string; description: string }> =
+              await client!.sendRequest("skidl/searchSymbols", { query: value, limit: 50 });
+            qp.items = results.map((r) => ({
+              label: r.name,
+              description: r.library,
+              detail: r.description,
+              _library: r.library,
+            }));
+          } catch {
+            qp.items = [];
+          }
+          qp.busy = false;
+        }, 300);
+      });
+
+      qp.onDidAccept(async () => {
+        const selected = qp.selectedItems[0];
+        if (!selected || !selected._library) { return; }
+        qp.hide();
+
+        const info: {
+          name: string; library: string; description: string;
+          default_footprint: string; keywords: string;
+          pins: Array<{ name: string; number: string; electrical_type: string }>;
+        } | null = await client!.sendRequest("skidl/getSymbolInfo", {
+          library: selected._library,
+          symbol: selected.label,
+        });
+        if (!info) { return; }
+
+        outputChannel.clear();
+        outputChannel.appendLine(`=== ${info.library}:${info.name} ===`);
+        outputChannel.appendLine(`Description: ${info.description}`);
+        outputChannel.appendLine(`Default footprint: ${info.default_footprint || "(none)"}`);
+        if (info.keywords) { outputChannel.appendLine(`Keywords: ${info.keywords}`); }
+        outputChannel.appendLine("");
+        outputChannel.appendLine("Pins:");
+        for (const pin of info.pins) {
+          outputChannel.appendLine(`  ${pin.number.padEnd(6)} ${pin.name.padEnd(20)} ${pin.electrical_type}`);
+        }
+        outputChannel.show(true);
+
+        const action = await vscode.window.showInformationMessage(
+          `${info.library}:${info.name} — ${info.description}`,
+          "Insert Part()",
+          "Copy"
+        );
+        if (action === "Insert Part()") {
+          const editor = vscode.window.activeTextEditor;
+          if (editor) {
+            editor.insertSnippet(new vscode.SnippetString(`Part("${info.library}", "${info.name}")`));
+          }
+        } else if (action === "Copy") {
+          await vscode.env.clipboard.writeText(`Part("${info.library}", "${info.name}")`);
+          vscode.window.showInformationMessage("Copied to clipboard.");
+        }
+      });
+
+      qp.onDidHide(() => {
+        if (debounceTimer) { clearTimeout(debounceTimer); }
+        qp.dispose();
+      });
+      qp.show();
+    }
+  );
+  context.subscriptions.push(browseComponentsCmd);
+
+  // Command: Browse Footprints
+  const browseFootprintsCmd = vscode.commands.registerCommand(
+    "skidl.browseFootprints",
+    async () => {
+      if (!client) { return; }
+      const qp = vscode.window.createQuickPick<vscode.QuickPickItem & { _library?: string }>();
+      qp.placeholder = "Type to search KiCad footprints (e.g. '0805', 'QFP', 'SOT-23')...";
+      qp.matchOnDescription = true;
+      qp.matchOnDetail = true;
+
+      let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+      qp.onDidChangeValue((value) => {
+        if (debounceTimer) { clearTimeout(debounceTimer); }
+        if (value.length < 2) {
+          qp.items = [];
+          return;
+        }
+        qp.busy = true;
+        debounceTimer = setTimeout(async () => {
+          try {
+            const results: Array<{ library: string; name: string; description: string; pad_count: number }> =
+              await client!.sendRequest("skidl/searchFootprints", { query: value, limit: 50 });
+            qp.items = results.map((r) => ({
+              label: r.name,
+              description: r.library,
+              detail: r.description ? `${r.description} (${r.pad_count} pads)` : `${r.pad_count} pads`,
+              _library: r.library,
+            }));
+          } catch {
+            qp.items = [];
+          }
+          qp.busy = false;
+        }, 300);
+      });
+
+      qp.onDidAccept(async () => {
+        const selected = qp.selectedItems[0];
+        if (!selected || !selected._library) { return; }
+        qp.hide();
+        const footprintStr = `${selected._library}:${selected.label}`;
+        await vscode.env.clipboard.writeText(footprintStr);
+        vscode.window.showInformationMessage(`Copied "${footprintStr}" to clipboard.`);
+      });
+
+      qp.onDidHide(() => {
+        if (debounceTimer) { clearTimeout(debounceTimer); }
+        qp.dispose();
+      });
+      qp.show();
+    }
+  );
+  context.subscriptions.push(browseFootprintsCmd);
+
+  // Command: Generate BOM
+  const generateBomCmd = vscode.commands.registerCommand(
+    "skidl.generateBom",
+    async () => {
+      if (!client) { return; }
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showWarningMessage("No active editor. Open a SKiDL Python file first.");
+        return;
+      }
+      const uri = editor.document.uri.toString();
+      const entries: Array<{
+        reference: string; library: string; symbol: string;
+        footprint: string; description: string; quantity: number;
+      }> = await client.sendRequest("skidl/generateBom", { uri });
+
+      if (entries.length === 0) {
+        vscode.window.showInformationMessage("No Part() calls found in the current file.");
+        return;
+      }
+
+      const lines: string[] = [
+        `# BOM — ${path.basename(editor.document.fileName)}`,
+        "",
+        "| Qty | Reference | Symbol | Library | Footprint | Description |",
+        "|-----|-----------|--------|---------|-----------|-------------|",
+      ];
+      for (const e of entries) {
+        lines.push(`| ${e.quantity} | ${e.reference} | ${e.symbol} | ${e.library} | ${e.footprint} | ${e.description} |`);
+      }
+      lines.push("", `*Generated from ${path.basename(editor.document.fileName)}*`);
+
+      const doc = await vscode.workspace.openTextDocument({
+        content: lines.join("\n"),
+        language: "markdown",
+      });
+      await vscode.window.showTextDocument(doc, { preview: true });
+    }
+  );
+  context.subscriptions.push(generateBomCmd);
+
+  // Command: Validate Design
+  const validateDesignCmd = vscode.commands.registerCommand(
+    "skidl.validateDesign",
+    async () => {
+      if (!client) { return; }
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showWarningMessage("No active editor. Open a SKiDL Python file first.");
+        return;
+      }
+      const uri = editor.document.uri.toString();
+      const issues: Array<{
+        message: string; severity: string; kind: string;
+        value: string; suggestions: string[];
+        location: { start_line: number; start_col: number; end_line: number; end_col: number };
+      }> = await client.sendRequest("skidl/validateDesign", { uri });
+
+      if (issues.length === 0) {
+        vscode.window.showInformationMessage("No issues found — design validates successfully!");
+        return;
+      }
+
+      outputChannel.clear();
+      outputChannel.appendLine(`=== Design Validation: ${path.basename(editor.document.fileName)} ===`);
+      outputChannel.appendLine(`Found ${issues.length} issue(s):`);
+      outputChannel.appendLine("");
+      for (const issue of issues) {
+        const loc = `Line ${issue.location.start_line + 1}:${issue.location.start_col + 1}`;
+        outputChannel.appendLine(`[${issue.severity.toUpperCase()}] ${loc}: ${issue.message}`);
+        if (issue.suggestions.length > 0) {
+          outputChannel.appendLine(`  Suggestions: ${issue.suggestions.join(", ")}`);
+        }
+      }
+      outputChannel.show(true);
+    }
+  );
+  context.subscriptions.push(validateDesignCmd);
+
   const serverOptions: ServerOptions = {
     command: pythonPath,
     args: [serverModule],
@@ -343,11 +562,11 @@ async function writeVsCodeMcpConfig(snippet: McpServerConfig): Promise<void> {
     // File doesn't exist yet, start fresh
   }
 
-  // Merge under servers.skidl-kicad, preserving other servers
+  // Merge under servers.skidl, preserving other servers
   if (!existing.servers || typeof existing.servers !== "object") {
     existing.servers = {};
   }
-  (existing.servers as Record<string, unknown>)["skidl-kicad"] = snippet;
+  (existing.servers as Record<string, unknown>)["skidl"] = snippet;
 
   // Ensure .vscode directory exists
   try { await vscode.workspace.fs.createDirectory(dotVscode); } catch { /* already exists */ }
@@ -378,7 +597,7 @@ async function writeClaudeDesktopConfig(snippet: McpServerConfig): Promise<void>
   if (!existing.mcpServers || typeof existing.mcpServers !== "object") {
     existing.mcpServers = {};
   }
-  (existing.mcpServers as Record<string, unknown>)["skidl-kicad"] = snippet;
+  (existing.mcpServers as Record<string, unknown>)["skidl"] = snippet;
 
   // Ensure directory exists
   fs.mkdirSync(configDir, { recursive: true });

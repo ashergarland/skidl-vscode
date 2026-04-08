@@ -112,6 +112,10 @@ If auto-detection doesn't work, set the paths explicitly:
 | `SKiDL: Refresh KiCad Library Index` | Reload the library index, using the cache if it's still valid |
 | `SKiDL: Force Rebuild KiCad Library Index` | Force a full rebuild of the KiCad library index (skips cache) |
 | `SKiDL: Enable MCP Integration` | Configure the MCP server for VS Code, Claude Desktop, or clipboard |
+| `SKiDL: Browse Components` | Search and browse KiCad symbols with live fuzzy search |
+| `SKiDL: Browse Footprints` | Search and browse KiCad footprints with live fuzzy search |
+| `SKiDL: Generate BOM` | Generate a Bill of Materials from Part() calls in the active file |
+| `SKiDL: Validate Design` | Run full validation on the active file and show results |
 
 ## Development
 
@@ -138,7 +142,7 @@ npm run package        # package VSIX only
 ### Test
 
 ```bash
-npm test               # run all 103 Python server tests
+npm test               # run all 123 Python server tests
 ```
 
 ### Release
@@ -181,6 +185,8 @@ AI Agent  <--stdio-->  MCP Server  -->  KiCad Libraries (local)
 
 ### Setup
 
+On first activation, the extension prompts you to set up the MCP server. Choose **Configure** to run the setup wizard, **Later** to be reminded next time, or **Don't ask again** to dismiss permanently. You can always run the setup manually from the Command Palette.
+
 **Automatic setup (recommended):**
 
 1. Open the Command Palette (`Ctrl+Shift+P`)
@@ -201,7 +207,7 @@ pip install pygls lsprotocol mcp
 ```json
 {
   "mcpServers": {
-    "skidl-kicad": {
+    "skidl": {
       "command": "python",
       "args": ["/path/to/skidl-vscode/mcp_server/server.py"]
     }
@@ -213,7 +219,7 @@ pip install pygls lsprotocol mcp
 ```json
 {
   "servers": {
-    "skidl-kicad": {
+    "skidl": {
       "command": "python",
       "args": ["${workspaceFolder}/mcp_server/server.py"]
     }
@@ -306,6 +312,7 @@ The agent can then fix the code and re-validate -- creating a tight generate/val
 | `search_footprints` | Fuzzy-search footprints across all libraries |
 | `get_completions` | Autocomplete suggestions for a source position |
 | `get_documentation_at` | Documentation for a source position |
+| `generate_bom` | Generate a Bill of Materials from SKiDL source code |
 | `rebuild_index` | Force rebuild the KiCad library index |
 
 ## Architecture

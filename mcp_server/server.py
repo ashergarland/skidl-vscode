@@ -24,10 +24,13 @@ if str(_SERVER_DIR.parent) not in sys.path:
     sys.path.insert(0, str(_SERVER_DIR.parent))
 
 from core.analyzer import analyze
+from core.bom import generate_bom as core_generate_bom
 from core.completions import get_suggestions
 from core.diagnostics import compute_validation_data
 from core.documentation import get_documentation
 from core.indexer import LibraryIndex, build_index
+from core.search import search_footprints as core_search_footprints
+from core.search import search_symbols as core_search_symbols
 
 log = logging.getLogger(__name__)
 
@@ -257,34 +260,10 @@ def search_symbols(query: str, limit: int = 10) -> list[dict]:
         limit: Maximum number of results (default 10)
     """
     index = _get_index()
-    # Build flat list of (library, name, description)
-    all_syms: list[tuple[str, str, str]] = []
-    for lib_name in index.all_symbol_lib_names:
-        for sym_name in index.get_symbols_in_lib(lib_name):
-            sym = index.get_symbol(lib_name, sym_name)
-            desc = sym.description if sym else ""
-            all_syms.append((lib_name, sym_name, desc))
-
-    # Score by substring match first, then fuzzy
-    query_lower = query.lower()
-    scored: list[tuple[float, str, str, str]] = []
-    for lib, name, desc in all_syms:
-        combined = f"{name} {desc}".lower()
-        if query_lower in combined:
-            # Exact substring gets high score
-            score = 1.0 if query_lower == name.lower() else 0.8
-        else:
-            ratio = difflib.SequenceMatcher(None, query_lower, name.lower()).ratio()
-            if ratio >= 0.5:
-                score = ratio * 0.6
-            else:
-                continue
-        scored.append((score, lib, name, desc))
-
-    scored.sort(key=lambda x: -x[0])
+    results = core_search_symbols(query, index, limit)
     return [
-        {"library": lib, "name": name, "description": desc}
-        for _, lib, name, desc in scored[:limit]
+        {"library": r.library, "name": r.name, "description": r.description}
+        for r in results
     ]
 
 
@@ -297,32 +276,10 @@ def search_footprints(query: str, limit: int = 10) -> list[dict]:
         limit: Maximum number of results (default 10)
     """
     index = _get_index()
-    all_fps: list[tuple[str, str, str, int]] = []
-    for lib_name in index.all_footprint_lib_names:
-        for fp_name in index.get_footprints_in_lib(lib_name):
-            fp = index.get_footprint(lib_name, fp_name)
-            desc = fp.description if fp else ""
-            pads = fp.pad_count if fp else 0
-            all_fps.append((lib_name, fp_name, desc, pads))
-
-    query_lower = query.lower()
-    scored: list[tuple[float, str, str, str, int]] = []
-    for lib, name, desc, pads in all_fps:
-        combined = f"{lib}:{name} {desc}".lower()
-        if query_lower in combined:
-            score = 1.0 if query_lower == name.lower() else 0.8
-        else:
-            ratio = difflib.SequenceMatcher(None, query_lower, name.lower()).ratio()
-            if ratio >= 0.4:
-                score = ratio * 0.6
-            else:
-                continue
-        scored.append((score, lib, name, desc, pads))
-
-    scored.sort(key=lambda x: -x[0])
+    results = core_search_footprints(query, index, limit)
     return [
-        {"library": lib, "name": name, "description": desc, "pad_count": pads}
-        for _, lib, name, desc, pads in scored[:limit]
+        {"library": r.library, "name": r.name, "description": r.description, "pad_count": r.pad_count}
+        for r in results
     ]
 
 
@@ -373,6 +330,31 @@ def get_documentation_at(source: str, line: int, character: int) -> Optional[dic
             "end_col": result.end_col,
         },
     }
+
+
+@mcp.tool()
+def generate_bom(source: str) -> list[dict]:
+    """Generate a Bill of Materials from SKiDL Python source code.
+
+    Parses Part() calls, resolves descriptions and default footprints
+    from the index, and groups identical parts by quantity.
+
+    Args:
+        source: Full Python source code containing Part() calls
+    """
+    index = _get_index()
+    entries = core_generate_bom(source, index)
+    return [
+        {
+            "reference": e.reference,
+            "library": e.library,
+            "symbol": e.symbol,
+            "footprint": e.footprint,
+            "description": e.description,
+            "quantity": e.quantity,
+        }
+        for e in entries
+    ]
 
 
 # ---------------------------------------------------------------------------

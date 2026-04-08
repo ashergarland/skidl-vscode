@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.indexer import LibraryIndex, build_index
 from mcp_server.server import (
     _get_index,
+    generate_bom,
     get_completions,
     get_documentation_at,
     get_footprint_info,
@@ -253,3 +254,41 @@ class TestGetDocumentation:
         src = 'from skidl import Part\nprint("hello")'
         result = get_documentation_at(src, line=1, character=0)
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# BOM generation
+# ---------------------------------------------------------------------------
+
+class TestGenerateBom:
+    def setup_method(self):
+        _install_fixture_index()
+
+    def test_simple_bom(self):
+        src = 'from skidl import Part\nr1 = Part("Device", "R", footprint="Resistor_SMD:R_0805_2012Metric")\nled1 = Part("Device", "LED")'
+        result = generate_bom(src)
+        assert len(result) == 2
+        symbols = {e["symbol"] for e in result}
+        assert "R" in symbols
+        assert "LED" in symbols
+
+    def test_grouped_parts(self):
+        src = 'from skidl import Part\nr1 = Part("Device", "R")\nr2 = Part("Device", "R")'
+        result = generate_bom(src)
+        r_entry = next(e for e in result if e["symbol"] == "R")
+        assert r_entry["quantity"] == 2
+
+    def test_empty_source(self):
+        result = generate_bom('print("hello")')
+        assert result == []
+
+    def test_result_fields(self):
+        src = 'from skidl import Part\nr1 = Part("Device", "R")'
+        result = generate_bom(src)
+        entry = result[0]
+        assert "reference" in entry
+        assert "library" in entry
+        assert "symbol" in entry
+        assert "footprint" in entry
+        assert "description" in entry
+        assert "quantity" in entry
