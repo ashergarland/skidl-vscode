@@ -20,10 +20,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install Python dependencies
-        run: pip install pygls lsprotocol pytest
+        run: pip install pygls lsprotocol mcp pytest
 
       - name: Run tests
-        run: python -m pytest test/ -v
+        run: python -m pytest tests/ -v
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

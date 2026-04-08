@@ -151,6 +151,25 @@ export async function activate(context: vscode.ExtensionContext) {
   await client.start();
   outputChannel.appendLine("Language client started successfully.");
   console.log("[SKiDL] Language client started successfully.");
+
+  // One-time prompt to configure MCP integration
+  const mcpPromptKey = "skidl.mcpSetupPromptShown";
+  if (!context.globalState.get<boolean>(mcpPromptKey)) {
+    const action = await vscode.window.showInformationMessage(
+      "SKiDL IntelliSense includes an MCP server for AI agents (Claude, Copilot, etc.). Set it up now?",
+      "Configure",
+      "Later",
+      "Don't ask again"
+    );
+    if (action === "Configure") {
+      vscode.commands.executeCommand("skidl.setupMcpServer");
+      context.globalState.update(mcpPromptKey, true);
+    } else if (action === "Don't ask again") {
+      context.globalState.update(mcpPromptKey, true);
+    }
+    // "Later" or dismiss: don't set the flag, ask again next time
+  }
+
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[SKiDL] Activation failed: ${msg}`);
