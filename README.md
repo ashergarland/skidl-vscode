@@ -111,6 +111,7 @@ If auto-detection doesn't work, set the paths explicitly:
 |---------|-------------|
 | `SKiDL: Refresh KiCad Library Index` | Reload the library index, using the cache if it's still valid |
 | `SKiDL: Force Rebuild KiCad Library Index` | Force a full rebuild of the KiCad library index (skips cache) |
+| `SKiDL: Copy MCP Server Path` | Copy the MCP server file path to clipboard (for AI agent configuration) |
 
 ## Development
 
@@ -137,7 +138,7 @@ npm run package        # package VSIX only
 ### Test
 
 ```bash
-npm test               # run all 76 Python server tests
+npm test               # run all 103 Python server tests
 ```
 
 ### Release
@@ -158,12 +159,163 @@ npm run version:minor  # 0.3.0 -> 0.4.0
 npm run version:major  # 0.3.0 -> 1.0.0
 ```
 
+## MCP Server (AI Agent Interface)
+
+The extension includes an [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server that exposes KiCad library validation and browsing to AI agents. This lets an AI generate SKiDL code and validate it against your actual KiCad library installation -- catching hallucinated part names, wrong pin names, and invalid footprints before the code ever runs.
+
+### Who is this for?
+
+- **AI coding agents** (Claude, Copilot, custom agents) that generate SKiDL Python code and need to verify it
+- **Agentic workflows** that generate PCB designs programmatically and need a validation oracle
+- **Developers** building AI-assisted EDA tooling on top of KiCad
+
+### How it works
+
+The MCP server wraps the same indexer and validation engine used by the VS Code extension. An AI agent connects over stdio, calls tools to browse parts or validate code, and gets structured JSON responses it can act on.
+
+```
+AI Agent  <--stdio-->  MCP Server  -->  KiCad Libraries (local)
+                            |
+                       Cached Index (~1s startup)
+```
+
+### Setup
+
+**If you installed the VS Code extension from the Marketplace**, the MCP server and all dependencies are already on your machine. To get the server path:
+
+1. Open the Command Palette (`Ctrl+Shift+P`)
+2. Run **SKiDL: Copy MCP Server Path**
+3. Paste the path into your MCP client configuration (see below)
+
+**If you're setting up from source:**
+
+```bash
+git clone https://github.com/ashergarland/skidl-vscode.git
+cd skidl-vscode
+pip install pygls lsprotocol mcp
+```
+
+**2. Configure your AI client:**
+
+**Claude Desktop** (`claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "skidl": {
+      "command": "python",
+      "args": ["/path/to/skidl-vscode/server/mcp_server.py"]
+    }
+  }
+}
+```
+
+**VS Code Copilot** (`.vscode/mcp.json` in your project):
+```json
+{
+  "servers": {
+    "skidl": {
+      "command": "python",
+      "args": ["${workspaceFolder}/server/mcp_server.py"]
+    }
+  }
+}
+```
+
+**3. The server auto-detects your KiCad installation.** Override with environment variables if needed:
+
+| Variable | Description |
+|----------|-------------|
+| `SKIDL_KICAD_SYMBOL_DIR` | Override auto-detected symbol library path |
+| `SKIDL_KICAD_FOOTPRINT_DIR` | Override auto-detected footprint library path |
+
+### Example: AI-assisted PCB design workflow
+
+Once configured, an AI agent can use these tools in conversation:
+
+**"What resistor symbols are available?"**
+```
+Tool: list_symbols({ library: "Device" })
+
+Response:
+[
+  { "name": "R", "description": "Resistor", "default_footprint": "Resistor_SMD:R_0402_1005Metric" },
+  { "name": "R_Pack04", "description": "4 resistor network", ... },
+  ...
+]
+```
+
+**"What pins does an LED have?"**
+```
+Tool: get_symbol_info({ library: "Device", symbol: "LED" })
+
+Response:
+{
+  "name": "LED",
+  "description": "Light emitting diode",
+  "pins": [
+    { "name": "A", "number": "1", "electrical_type": "passive" },
+    { "name": "K", "number": "2", "electrical_type": "passive" }
+  ]
+}
+```
+
+**"Find me an 0805 footprint"**
+```
+Tool: search_footprints({ query: "R_0805", limit: 3 })
+
+Response:
+[
+  { "library": "Resistor_SMD", "name": "R_0805_2012Metric", "pad_count": 2 },
+  { "library": "Resistor_SMD", "name": "R_0805_2012Metric_Pad1.20x1.40mm_HandSolder", "pad_count": 2 },
+  ...
+]
+```
+
+**"Validate this SKiDL code I just wrote"**
+```
+Tool: validate_skidl_code({
+  source: "from skidl import Part\nr1 = Part('Devce', 'R')\nr1['X'] += some_net"
+})
+
+Response:
+[
+  {
+    "message": "KiCad symbol library 'Devce' not found. Did you mean: Device?",
+    "severity": "error",
+    "kind": "library",
+    "suggestions": ["Device"],
+    "location": { "start_line": 1, "start_col": 10, ... }
+  }
+]
+```
+
+The agent can then fix the code and re-validate -- creating a tight generate/validate/fix loop without ever running the script.
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `validate_skidl_code` | Validate SKiDL Python source against installed KiCad libraries |
+| `list_libraries` | List all KiCad symbol library names |
+| `list_symbols` | List symbols in a library with descriptions |
+| `get_symbol_info` | Full symbol detail including all pins |
+| `list_footprint_libraries` | List all footprint library names |
+| `list_footprints` | List footprints in a library |
+| `get_footprint_info` | Full footprint detail |
+| `search_symbols` | Fuzzy-search symbols across all libraries |
+| `search_footprints` | Fuzzy-search footprints across all libraries |
+| `get_completions` | Autocomplete suggestions for a source position |
+| `get_hover` | Hover documentation for a source position |
+| `rebuild_index` | Force rebuild the KiCad library index |
+
 ## Architecture
 
 | File | Purpose |
 |------|---------|
 | `src/extension.ts` | TypeScript LSP client (launches the Python server over stdio) |
 | `server/server.py` | pygls language server entry point |
+| `server/mcp_server.py` | MCP server entry point (AI agent interface) |
+| `server/models.py` | Shared response models (decoupled from LSP types) |
 | `server/indexer.py` | KiCad library discovery, indexing, and caching |
 | `server/analyzer.py` | Python AST analysis for SKiDL patterns |
 | `server/diagnostics.py` | Diagnostic provider |

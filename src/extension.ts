@@ -38,11 +38,22 @@ export async function activate(context: vscode.ExtensionContext) {
   console.log(`[SKiDL] Dependencies check result: ${depsOk}`);
   if (!depsOk) {
     vscode.window.showErrorMessage(
-      "SKiDL Language Server: Failed to install Python dependencies (pygls, lsprotocol). " +
-      "Please install them manually: pip install pygls lsprotocol"
+      "SKiDL Language Server: Failed to install Python dependencies (pygls, lsprotocol, mcp). " +
+      "Please install them manually: pip install pygls lsprotocol mcp"
     );
     return;
   }
+
+  // Command: copy MCP server path to clipboard
+  const mcpPathCmd = vscode.commands.registerCommand(
+    "skidl.copyMcpServerPath",
+    () => {
+      const mcpPath = context.asAbsolutePath(path.join("server", "mcp_server.py"));
+      vscode.env.clipboard.writeText(mcpPath);
+      vscode.window.showInformationMessage(`MCP server path copied: ${mcpPath}`);
+    }
+  );
+  context.subscriptions.push(mcpPathCmd);
 
   const serverOptions: ServerOptions = {
     command: pythonPath,
@@ -192,20 +203,20 @@ function getPythonPath(config: vscode.WorkspaceConfiguration): string {
 }
 
 /**
- * Check if pygls is importable. If not, install it (and lsprotocol) via pip.
+ * Check if pygls and mcp are importable. If not, install them via pip.
  * Returns true if dependencies are available after the check.
  */
 async function ensureDependencies(pythonPath: string): Promise<boolean> {
-  outputChannel.appendLine(`Checking if pygls is importable with: ${pythonPath}`);
-  const canImport = await runQuiet(pythonPath, ["-c", "import pygls"]);
+  outputChannel.appendLine(`Checking if pygls and mcp are importable with: ${pythonPath}`);
+  const canImport = await runQuiet(pythonPath, ["-c", "import pygls; import mcp"]);
   if (canImport) {
-    outputChannel.appendLine("pygls is already installed.");
+    outputChannel.appendLine("pygls and mcp are already installed.");
     return true;
   }
-  outputChannel.appendLine("pygls not found. Prompting for install.");
+  outputChannel.appendLine("Dependencies not found. Prompting for install.");
 
   const install = await vscode.window.showInformationMessage(
-    "SKiDL Language Server: Python dependencies (pygls, lsprotocol) are not installed. Install them now?",
+    "SKiDL Language Server: Python dependencies (pygls, lsprotocol, mcp) are not installed. Install them now?",
     "Install",
     "Cancel"
   );
@@ -221,7 +232,7 @@ async function ensureDependencies(pythonPath: string): Promise<boolean> {
       cancellable: false,
     },
     async () => {
-      return runQuiet(pythonPath, ["-m", "pip", "install", "pygls", "lsprotocol"]);
+      return runQuiet(pythonPath, ["-m", "pip", "install", "pygls", "lsprotocol", "mcp"]);
     }
   );
 

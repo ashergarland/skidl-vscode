@@ -22,7 +22,9 @@
     "kicad",
     "pcb",
     "eda",
-    "electronics"
+    "electronics",
+    "mcp",
+    "ai"
   ],
   "activationEvents": [
     "onLanguage:python"
@@ -37,6 +39,10 @@
       {
         "command": "skidl.rebuildIndex",
         "title": "SKiDL: Force Rebuild KiCad Library Index"
+      },
+      {
+        "command": "skidl.copyMcpServerPath",
+        "title": "SKiDL: Copy MCP Server Path"
       }
     ],
     "configuration": {

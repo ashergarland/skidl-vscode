@@ -23,34 +23,43 @@ from lsprotocol.types import (
 
 from .analyzer import AnalysisResult
 from .indexer import LibraryIndex
+from .models import CompletionItemData
 
 log = logging.getLogger(__name__)
 
 
 _SKIDL_IMPORT_RE = re.compile(r'(?:from\s+skidl\s+import|import\s+skidl)')
 
+_KIND_MAP = {
+    "module": CompletionItemKind.Module,
+    "class": CompletionItemKind.Class,
+    "value": CompletionItemKind.Value,
+    "field": CompletionItemKind.Field,
+}
 
-def get_completions(
+
+# -------------------------------------------------------------------
+# Pure-data completion generation (no LSP types)
+# -------------------------------------------------------------------
+
+def get_completions_data(
     source: str,
-    position: Position,
+    line: int,
+    character: int,
     analysis: AnalysisResult,
     index: LibraryIndex,
-) -> Optional[CompletionList]:
-    """Return completion items for the given position, or None."""
-    # Use regex check instead of AST analysis.is_skidl_file because the user
-    # is likely mid-edit with syntax errors (unclosed strings, etc.)
+) -> Optional[list[CompletionItemData]]:
+    """Return completion items as plain dataclasses, or None if no pattern matched."""
     if not analysis.is_skidl_file and not _SKIDL_IMPORT_RE.search(source):
         return None
 
-    line_idx = position.line
-    col = position.character
     lines = source.splitlines()
-    if line_idx >= len(lines):
-        return None
-    line = lines[line_idx]
-    prefix = line[:col]
+    if line >= len(lines):
+        return []
+    line_text = lines[line]
+    prefix = line_text[:character]
 
-    items: list[CompletionItem] = []
+    items: list[CompletionItemData] = []
 
     # --- Part("  → library names ---
     m = re.search(r'Part\(\s*"([^"]*?)$', prefix)
@@ -58,13 +67,11 @@ def get_completions(
         typed = m.group(1)
         for lib in index.all_symbol_lib_names:
             if lib.lower().startswith(typed.lower()):
-                items.append(CompletionItem(
-                    label=lib,
-                    kind=CompletionItemKind.Module,
-                    detail="KiCad symbol library",
-                    insert_text=lib,
+                items.append(CompletionItemData(
+                    label=lib, kind="module",
+                    detail="KiCad symbol library", insert_text=lib,
                 ))
-        return CompletionList(is_incomplete=False, items=items)
+        return items
 
     # --- Part("Lib", "  → symbol names ---
     m = re.search(r'Part\(\s*"([^"]+)"\s*,\s*"([^"]*?)$', prefix)
@@ -75,13 +82,11 @@ def get_completions(
             if sym.lower().startswith(typed.lower()):
                 info = index.get_symbol(lib, sym)
                 detail = info.description if info else ""
-                items.append(CompletionItem(
-                    label=sym,
-                    kind=CompletionItemKind.Class,
-                    detail=detail,
-                    insert_text=sym,
+                items.append(CompletionItemData(
+                    label=sym, kind="class",
+                    detail=detail, insert_text=sym,
                 ))
-        return CompletionList(is_incomplete=False, items=items)
+        return items
 
     # --- footprint="  → footprint lib:name ---
     m = re.search(r'footprint\s*=\s*"([^"]*?)$', prefix)
@@ -92,22 +97,18 @@ def get_completions(
             for fp in index.get_footprints_in_lib(fp_lib):
                 if fp.lower().startswith(fp_partial.lower()):
                     full = f"{fp_lib}:{fp}"
-                    items.append(CompletionItem(
-                        label=full,
-                        kind=CompletionItemKind.Value,
-                        detail="KiCad footprint",
-                        insert_text=fp,  # lib: already typed
+                    items.append(CompletionItemData(
+                        label=full, kind="value",
+                        detail="KiCad footprint", insert_text=fp,
                     ))
         else:
             for lib in index.all_footprint_lib_names:
                 if lib.lower().startswith(typed.lower()):
-                    items.append(CompletionItem(
-                        label=lib,
-                        kind=CompletionItemKind.Module,
-                        detail="Footprint library",
-                        insert_text=lib + ":",
+                    items.append(CompletionItemData(
+                        label=lib, kind="module",
+                        detail="Footprint library", insert_text=lib + ":",
                     ))
-        return CompletionList(is_incomplete=len(items) > 100, items=items[:100])
+        return items[:100]
 
     # --- part["  → pin names ---
     m = re.search(r'(\w+)\[\s*"([^"]*?)$', prefix)
@@ -121,13 +122,12 @@ def get_completions(
                 for pin in sym.pins:
                     label = pin.name or pin.number
                     if label.lower().startswith(typed.lower()):
-                        items.append(CompletionItem(
-                            label=label,
-                            kind=CompletionItemKind.Field,
+                        items.append(CompletionItemData(
+                            label=label, kind="field",
                             detail=f"Pin {pin.number} ({pin.electrical_type})" if pin.electrical_type else f"Pin {pin.number}",
                             insert_text=label,
                         ))
-        return CompletionList(is_incomplete=False, items=items)
+        return items
 
     # --- part[  (numeric pin) ---
     m = re.search(r'(\w+)\[\s*(\d*)$', prefix)
@@ -141,13 +141,39 @@ def get_completions(
                 for pin in sym.pins:
                     num = pin.number
                     if num.isdigit() and num.startswith(typed):
-                        items.append(CompletionItem(
-                            label=num,
-                            kind=CompletionItemKind.Field,
+                        items.append(CompletionItemData(
+                            label=num, kind="field",
                             detail=f"Pin {pin.name} ({pin.electrical_type})" if pin.name else f"Pin {num}",
                             insert_text=num,
                         ))
         if items:
-            return CompletionList(is_incomplete=False, items=items)
+            return items
 
     return None
+
+
+# -------------------------------------------------------------------
+# LSP wrapper (converts CompletionItemData → lsprotocol CompletionItem)
+# -------------------------------------------------------------------
+
+def get_completions(
+    source: str,
+    position: Position,
+    analysis: AnalysisResult,
+    index: LibraryIndex,
+) -> Optional[CompletionList]:
+    """Return LSP completion items for the given position, or None."""
+    data_items = get_completions_data(source, position.line, position.character, analysis, index)
+    if data_items is None:
+        return None
+
+    items = [
+        CompletionItem(
+            label=d.label,
+            kind=_KIND_MAP.get(d.kind, CompletionItemKind.Text),
+            detail=d.detail,
+            insert_text=d.insert_text,
+        )
+        for d in data_items
+    ]
+    return CompletionList(is_incomplete=len(items) > 100, items=items)

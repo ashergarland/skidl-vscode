@@ -19,6 +19,7 @@ from lsprotocol.types import (
 
 from .analyzer import AnalysisResult, PartCall, PinAccess
 from .indexer import LibraryIndex
+from .models import DiagnosticItem
 
 log = logging.getLogger(__name__)
 
@@ -36,24 +37,28 @@ def _close_matches(word: str, candidates: list[str], n: int = 3, cutoff: float =
     return difflib.get_close_matches(word, candidates, n=n, cutoff=cutoff)
 
 
-def compute_diagnostics(analysis: AnalysisResult, index: LibraryIndex) -> List[Diagnostic]:
-    """Return diagnostics for the given analysis result."""
-    diags: list[Diagnostic] = []
+# -------------------------------------------------------------------
+# Pure-data diagnostic generation (no LSP types)
+# -------------------------------------------------------------------
+
+def compute_diagnostics_data(analysis: AnalysisResult, index: LibraryIndex) -> list[DiagnosticItem]:
+    """Return diagnostics as plain dataclasses (no LSP dependency)."""
+    items: list[DiagnosticItem] = []
 
     if not analysis.is_skidl_file:
-        return diags
+        return items
 
     for pc in analysis.part_calls:
-        diags.extend(_validate_part(pc, index))
+        items.extend(_validate_part_data(pc, index))
 
     for pa in analysis.pin_accesses:
-        diags.extend(_validate_pin(pa, analysis, index))
+        items.extend(_validate_pin_data(pa, analysis, index))
 
-    return diags
+    return items
 
 
-def _validate_part(pc: PartCall, index: LibraryIndex) -> list[Diagnostic]:
-    diags: list[Diagnostic] = []
+def _validate_part_data(pc: PartCall, index: LibraryIndex) -> list[DiagnosticItem]:
+    items: list[DiagnosticItem] = []
 
     # --- Library name ---
     if pc.library:
@@ -63,14 +68,13 @@ def _validate_part(pc: PartCall, index: LibraryIndex) -> list[Diagnostic]:
             msg = f"KiCad symbol library '{pc.library}' not found"
             if suggestions:
                 msg += f". Did you mean: {', '.join(suggestions)}?"
-            diags.append(Diagnostic(
-                range=_range_from_span(span),
-                message=msg,
-                severity=DiagnosticSeverity.Error,
-                source=DIAG_SOURCE,
-                data={"kind": "library", "value": pc.library, "suggestions": suggestions},
+            items.append(DiagnosticItem(
+                message=msg, severity="error", kind="library",
+                value=pc.library, suggestions=suggestions,
+                start_line=span[0], start_col=span[1],
+                end_line=span[2], end_col=span[3],
             ))
-            return diags  # Can't check symbol if library is wrong
+            return items  # Can't check symbol if library is wrong
 
     # --- Symbol name ---
     if pc.library and pc.symbol:
@@ -81,12 +85,12 @@ def _validate_part(pc: PartCall, index: LibraryIndex) -> list[Diagnostic]:
             msg = f"Symbol '{pc.symbol}' not found in library '{pc.library}'"
             if suggestions:
                 msg += f". Did you mean: {', '.join(suggestions)}?"
-            diags.append(Diagnostic(
-                range=_range_from_span(span),
-                message=msg,
-                severity=DiagnosticSeverity.Error,
-                source=DIAG_SOURCE,
-                data={"kind": "symbol", "library": pc.library, "value": pc.symbol, "suggestions": suggestions},
+            items.append(DiagnosticItem(
+                message=msg, severity="error", kind="symbol",
+                value=pc.symbol, suggestions=suggestions,
+                library=pc.library,
+                start_line=span[0], start_col=span[1],
+                end_line=span[2], end_col=span[3],
             ))
 
     # --- Footprint ---
@@ -98,12 +102,11 @@ def _validate_part(pc: PartCall, index: LibraryIndex) -> list[Diagnostic]:
             msg = f"Footprint library '{fp_lib}' not found"
             if suggestions:
                 msg += f". Did you mean: {', '.join(suggestions)}?"
-            diags.append(Diagnostic(
-                range=_range_from_span(span),
-                message=msg,
-                severity=DiagnosticSeverity.Error,
-                source=DIAG_SOURCE,
-                data={"kind": "fp_library", "value": fp_lib, "suggestions": suggestions},
+            items.append(DiagnosticItem(
+                message=msg, severity="error", kind="fp_library",
+                value=fp_lib, suggestions=suggestions,
+                start_line=span[0], start_col=span[1],
+                end_line=span[2], end_col=span[3],
             ))
         elif not index.footprint_exists(fp_lib, fp_name):
             span = pc.footprint_span or (pc.line, pc.col, pc.end_line, pc.end_col)
@@ -112,28 +115,27 @@ def _validate_part(pc: PartCall, index: LibraryIndex) -> list[Diagnostic]:
             msg = f"Footprint '{fp_name}' not found in footprint library '{fp_lib}'"
             if suggestions:
                 msg += f". Did you mean: {', '.join(suggestions)}?"
-            diags.append(Diagnostic(
-                range=_range_from_span(span),
-                message=msg,
-                severity=DiagnosticSeverity.Error,
-                source=DIAG_SOURCE,
-                data={"kind": "footprint", "library": fp_lib, "value": fp_name, "suggestions": suggestions},
+            items.append(DiagnosticItem(
+                message=msg, severity="error", kind="footprint",
+                value=fp_name, suggestions=suggestions,
+                library=fp_lib,
+                start_line=span[0], start_col=span[1],
+                end_line=span[2], end_col=span[3],
             ))
 
-    return diags
+    return items
 
 
-def _validate_pin(pa: PinAccess, analysis: AnalysisResult, index: LibraryIndex) -> list[Diagnostic]:
-    diags: list[Diagnostic] = []
+def _validate_pin_data(pa: PinAccess, analysis: AnalysisResult, index: LibraryIndex) -> list[DiagnosticItem]:
+    items: list[DiagnosticItem] = []
     pc = analysis.var_to_part.get(pa.variable)
     if not pc or not pc.library or not pc.symbol:
-        return diags
+        return items
 
     sym = index.get_symbol(pc.library, pc.symbol)
     if not sym:
-        return diags
+        return items
 
-    # Check pin by name or number
     valid_names = {p.name for p in sym.pins}
     valid_numbers = {p.number for p in sym.pins}
 
@@ -144,12 +146,45 @@ def _validate_pin(pa: PinAccess, analysis: AnalysisResult, index: LibraryIndex) 
         if len(all_pins) > 20:
             available += ", ..."
         msg = f"Pin '{pa.pin}' not found on symbol '{pc.symbol}'. Available pins: {available}"
-        diags.append(Diagnostic(
-            range=_range_from_span(span),
-            message=msg,
-            severity=DiagnosticSeverity.Error,
-            source=DIAG_SOURCE,
-            data={"kind": "pin", "symbol": pc.symbol, "value": pa.pin},
+        items.append(DiagnosticItem(
+            message=msg, severity="error", kind="pin",
+            value=pa.pin, symbol=pc.symbol,
+            start_line=span[0], start_col=span[1],
+            end_line=span[2], end_col=span[3],
         ))
 
+    return items
+
+
+# -------------------------------------------------------------------
+# LSP wrapper (converts DiagnosticItem → lsprotocol Diagnostic)
+# -------------------------------------------------------------------
+
+_SEVERITY_MAP = {
+    "error": DiagnosticSeverity.Error,
+    "warning": DiagnosticSeverity.Warning,
+    "info": DiagnosticSeverity.Information,
+    "hint": DiagnosticSeverity.Hint,
+}
+
+
+def compute_diagnostics(analysis: AnalysisResult, index: LibraryIndex) -> List[Diagnostic]:
+    """Return LSP diagnostics for the given analysis result."""
+    items = compute_diagnostics_data(analysis, index)
+    diags: list[Diagnostic] = []
+    for item in items:
+        data: dict = {"kind": item.kind, "value": item.value}
+        if item.suggestions:
+            data["suggestions"] = item.suggestions
+        if item.library:
+            data["library"] = item.library
+        if item.symbol:
+            data["symbol"] = item.symbol
+        diags.append(Diagnostic(
+            range=_range_from_span((item.start_line, item.start_col, item.end_line, item.end_col)),
+            message=item.message,
+            severity=_SEVERITY_MAP.get(item.severity, DiagnosticSeverity.Error),
+            source=DIAG_SOURCE,
+            data=data,
+        ))
     return diags
