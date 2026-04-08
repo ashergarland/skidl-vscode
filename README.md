@@ -333,6 +333,8 @@ The agent can then fix the code and re-validate -- creating a tight generate/val
 | `core/diagnostics.py` | Validation provider |
 | `core/completions.py` | Completion provider |
 | `core/documentation.py` | Symbol/pin/footprint documentation provider |
+| `core/search.py` | Fuzzy search across symbols and footprints |
+| `core/bom.py` | Bill of Materials generation from Part() calls |
 | `core/kicad_parser.py` | Streaming `.kicad_sym` / `.kicad_mod` parser (regex + bracket counting) |
 
 The **TypeScript side** is a minimal LSP client that launches the Python server over stdio and manages the status bar indicator. The Python server does the heavy lifting: parsing KiCad library files with a streaming parser, walking the Python AST to find `Part()` calls and pin accesses, and validating everything against a cached in-memory index.
