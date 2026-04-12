@@ -391,9 +391,13 @@ def on_code_action(params: CodeActionParams) -> list[CodeAction]:
 
 @server.feature("skidl/searchSymbols")
 def on_search_symbols(params):
-    query = params.get("query", "") if isinstance(params, dict) else ""
-    limit = params.get("limit", 50) if isinstance(params, dict) else 50
+    if not server._index_ready:
+        return []
+    query = getattr(params, "query", "") if not isinstance(params, dict) else params.get("query", "")
+    limit = getattr(params, "limit", 50) if not isinstance(params, dict) else params.get("limit", 50)
+    log.info("searchSymbols: query=%r, limit=%d, index_ready=%s", query, limit, server._index_ready)
     results = search_symbols(query, server.index, limit)
+    log.info("searchSymbols: returning %d results", len(results))
     return [
         {"library": r.library, "name": r.name, "description": r.description}
         for r in results
@@ -402,9 +406,13 @@ def on_search_symbols(params):
 
 @server.feature("skidl/searchFootprints")
 def on_search_footprints(params):
-    query = params.get("query", "") if isinstance(params, dict) else ""
-    limit = params.get("limit", 50) if isinstance(params, dict) else 50
+    if not server._index_ready:
+        return []
+    query = getattr(params, "query", "") if not isinstance(params, dict) else params.get("query", "")
+    limit = getattr(params, "limit", 50) if not isinstance(params, dict) else params.get("limit", 50)
+    log.info("searchFootprints: query=%r, limit=%d, index_ready=%s", query, limit, server._index_ready)
     results = search_footprints(query, server.index, limit)
+    log.info("searchFootprints: returning %d results", len(results))
     return [
         {"library": r.library, "name": r.name, "description": r.description, "pad_count": r.pad_count}
         for r in results
@@ -413,8 +421,10 @@ def on_search_footprints(params):
 
 @server.feature("skidl/getSymbolInfo")
 def on_get_symbol_info(params):
-    library = params.get("library", "") if isinstance(params, dict) else ""
-    symbol = params.get("symbol", "") if isinstance(params, dict) else ""
+    if not server._index_ready:
+        return None
+    library = getattr(params, "library", "") if not isinstance(params, dict) else params.get("library", "")
+    symbol = getattr(params, "symbol", "") if not isinstance(params, dict) else params.get("symbol", "")
     sym = server.index.get_symbol(library, symbol)
     if not sym:
         return None
@@ -437,9 +447,18 @@ def on_get_symbol_info(params):
 
 @server.feature("skidl/generateBom")
 def on_generate_bom(params):
-    uri = params.get("uri", "") if isinstance(params, dict) else ""
-    doc = server.workspace.get_text_document(uri)
-    entries = generate_bom(doc.source, server.index)
+    if not server._index_ready:
+        return []
+    source = getattr(params, "source", "") or ""
+    if not source:
+        uri = getattr(params, "uri", "") or ""
+        if uri:
+            try:
+                doc = server.workspace.get_text_document(uri)
+                source = doc.source
+            except Exception:
+                pass
+    entries = generate_bom(source, server.index)
     return [
         {
             "reference": e.reference,
@@ -455,9 +474,20 @@ def on_generate_bom(params):
 
 @server.feature("skidl/validateDesign")
 def on_validate_design(params):
-    uri = params.get("uri", "") if isinstance(params, dict) else ""
-    doc = server.workspace.get_text_document(uri)
-    analysis = analyze(doc.source)
+    if not server._index_ready:
+        return [{"message": "KiCad library index is still loading. Please wait and try again.",
+                 "severity": "warning", "kind": "index", "value": "",
+                 "suggestions": [], "location": {"start_line": 0, "start_col": 0, "end_line": 0, "end_col": 0}}]
+    source = getattr(params, "source", "") or ""
+    if not source:
+        uri = getattr(params, "uri", "") or ""
+        if uri:
+            try:
+                doc = server.workspace.get_text_document(uri)
+                source = doc.source
+            except Exception:
+                pass
+    analysis = analyze(source)
     issues = compute_validation_data(analysis, server.index)
     return [
         {

@@ -101,7 +101,8 @@ export async function activate(context: vscode.ExtensionContext) {
               detail: r.description,
               _library: r.library,
             }));
-          } catch {
+          } catch (err) {
+            outputChannel.appendLine(`[Browse Components] search error: ${err}`);
             qp.items = [];
           }
           qp.busy = false;
@@ -188,7 +189,8 @@ export async function activate(context: vscode.ExtensionContext) {
               detail: r.description ? `${r.description} (${r.pad_count} pads)` : `${r.pad_count} pads`,
               _library: r.library,
             }));
-          } catch {
+          } catch (err) {
+            outputChannel.appendLine(`[Browse Footprints] search error: ${err}`);
             qp.items = [];
           }
           qp.busy = false;
@@ -224,10 +226,11 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
       const uri = editor.document.uri.toString();
+      const source = editor.document.getText();
       const entries: Array<{
         reference: string; library: string; symbol: string;
         footprint: string; description: string; quantity: number;
-      }> = await client.sendRequest("skidl/generateBom", { uri });
+      }> = await client.sendRequest("skidl/generateBom", { uri, source });
 
       if (entries.length === 0) {
         vscode.window.showInformationMessage("No Part() calls found in the current file.");
@@ -265,29 +268,38 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
       const uri = editor.document.uri.toString();
-      const issues: Array<{
-        message: string; severity: string; kind: string;
-        value: string; suggestions: string[];
-        location: { start_line: number; start_col: number; end_line: number; end_col: number };
-      }> = await client.sendRequest("skidl/validateDesign", { uri });
+      const source = editor.document.getText();
+      outputChannel.appendLine(`[Validate Design] Sending request: uri=${uri}, source.length=${source.length}`);
+      try {
+        const issues: Array<{
+          message: string; severity: string; kind: string;
+          value: string; suggestions: string[];
+          location: { start_line: number; start_col: number; end_line: number; end_col: number };
+        }> = await client.sendRequest("skidl/validateDesign", { uri, source });
 
-      if (issues.length === 0) {
-        vscode.window.showInformationMessage("No issues found — design validates successfully!");
-        return;
-      }
+        outputChannel.appendLine(`[Validate Design] Received ${issues.length} issue(s)`);
 
-      outputChannel.clear();
-      outputChannel.appendLine(`=== Design Validation: ${path.basename(editor.document.fileName)} ===`);
-      outputChannel.appendLine(`Found ${issues.length} issue(s):`);
-      outputChannel.appendLine("");
-      for (const issue of issues) {
-        const loc = `Line ${issue.location.start_line + 1}:${issue.location.start_col + 1}`;
-        outputChannel.appendLine(`[${issue.severity.toUpperCase()}] ${loc}: ${issue.message}`);
-        if (issue.suggestions.length > 0) {
-          outputChannel.appendLine(`  Suggestions: ${issue.suggestions.join(", ")}`);
+        if (issues.length === 0) {
+          vscode.window.showInformationMessage("No issues found — design validates successfully!");
+          return;
         }
+
+        outputChannel.clear();
+        outputChannel.appendLine(`=== Design Validation: ${path.basename(editor.document.fileName)} ===`);
+        outputChannel.appendLine(`Found ${issues.length} issue(s):`);
+        outputChannel.appendLine("");
+        for (const issue of issues) {
+          const loc = `Line ${issue.location.start_line + 1}:${issue.location.start_col + 1}`;
+          outputChannel.appendLine(`[${issue.severity.toUpperCase()}] ${loc}: ${issue.message}`);
+          if (issue.suggestions.length > 0) {
+            outputChannel.appendLine(`  Suggestions: ${issue.suggestions.join(", ")}`);
+          }
+        }
+        outputChannel.show(true);
+      } catch (err) {
+        outputChannel.appendLine(`[Validate Design] ERROR: ${err}`);
+        outputChannel.show(true);
       }
-      outputChannel.show(true);
     }
   );
   context.subscriptions.push(validateDesignCmd);

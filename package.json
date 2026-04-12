@@ -2,7 +2,7 @@
   "name": "skidl-lsp",
   "displayName": "SKiDL IntelliSense",
   "description": "SKiDL Language Server: real-time KiCad symbol, footprint, and pin validation for SKiDL Python files",
-  "version": "0.4.0",
+  "version": "0.4.8",
   "publisher": "ashergarland",
   "license": "MIT",
   "repository": {
