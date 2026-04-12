@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ashergarland/skidl-vscode/actions/workflows/ci.yml/badge.svg)](https://github.com/ashergarland/skidl-vscode/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/release/ashergarland/skidl-vscode?label=version)](https://github.com/ashergarland/skidl-vscode/releases)
-[![Marketplace](https://img.shields.io/visual-studio-marketplace/v/ashergarland.skidl-lsp?label=marketplace)](https://marketplace.visualstudio.com/items?itemName=ashergarland.skidl-lsp)
+[![Marketplace](https://img.shields.io/badge/install-VS%20Code%20Marketplace-blue)](https://marketplace.visualstudio.com/items?itemName=ashergarland.skidl-lsp)
 
 A VS Code extension that provides real-time language intelligence for [SKiDL](https://github.com/devbisme/skidl) Python files. Validates KiCad symbol names, footprint names, and pin names against your installed KiCad libraries before you ever run the script.
 
