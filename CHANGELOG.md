@@ -2,6 +2,12 @@
 
 All notable changes to the SKiDL IntelliSense extension will be documented in this file.
 
+## [0.4.9] - 2026-04-18
+
+### Fixed
+
+- **`${workspaceFolder}` resolution**: The VS Code configuration API returns raw strings with unresolved variables like `${workspaceFolder}`. Added `resolveVscodeVariables()` helper that resolves these before using the path, fixing `ENOENT` errors when `python.defaultInterpreterPath` or `skidl.pythonPath` use workspace-relative paths.
+
 ## [0.4.8] - 2026-04-12
 
 ### Major Release: MCP Server, Browse/BOM/Validate Commands, Full Restructure

@@ -419,10 +419,24 @@ export async function deactivate(): Promise<void> {
   }
 }
 
+/**
+ * Resolve VS Code variables like ${workspaceFolder} in a string.
+ * The configuration API returns raw values without resolving these.
+ */
+function resolveVscodeVariables(value: string): string {
+  if (!value) return value;
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (workspaceFolders && workspaceFolders.length > 0) {
+    const wsPath = workspaceFolders[0].uri.fsPath;
+    value = value.replace(/\$\{workspaceFolder\}/g, wsPath);
+  }
+  return value;
+}
+
 function getPythonPath(config: vscode.WorkspaceConfiguration): string {
   const configured = config.get<string>("pythonPath", "");
   if (configured) {
-    return configured;
+    return resolveVscodeVariables(configured);
   }
 
   // Try the Python extension's selected interpreter
@@ -431,7 +445,7 @@ function getPythonPath(config: vscode.WorkspaceConfiguration): string {
     const pythonApi = pythonExt.exports;
     const envPath = pythonApi?.environments?.getActiveEnvironmentPath?.();
     if (envPath?.path) {
-      return envPath.path;
+      return resolveVscodeVariables(envPath.path);
     }
   }
 
@@ -439,7 +453,7 @@ function getPythonPath(config: vscode.WorkspaceConfiguration): string {
   const pythonConfig = vscode.workspace.getConfiguration("python");
   const defaultInterpreter = pythonConfig.get<string>("defaultInterpreterPath", "");
   if (defaultInterpreter && defaultInterpreter !== "python") {
-    return defaultInterpreter;
+    return resolveVscodeVariables(defaultInterpreter);
   }
 
   // Try common locations on disk
