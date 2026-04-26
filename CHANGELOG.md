@@ -2,6 +2,15 @@
 
 All notable changes to the SKiDL IntelliSense extension will be documented in this file.
 
+## [0.5.0] - 2026-04-26
+
+### Changed
+
+- **MCP server auto-discovery for VS Code**: The extension now registers its MCP server via the official `mcpServerDefinitionProviders` API. VS Code automatically discovers the SKiDL MCP server — no `.vscode/mcp.json` needed, and the path never goes stale after extension updates.
+- **Simplified MCP setup command**: The "Enable MCP Integration" command now only shows "Claude Desktop" and "Copy to clipboard" options, since VS Code users get auto-discovery.
+- **Removed one-time MCP setup prompt**: No longer needed since VS Code auto-detects the server.
+- **Minimum VS Code version bumped to 1.101.0**: Required for the `mcpServerDefinitionProviders` API.
+
 ## [0.4.9] - 2026-04-18
 
 ### Fixed

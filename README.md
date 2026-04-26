@@ -111,7 +111,7 @@ If auto-detection doesn't work, set the paths explicitly:
 |---------|-------------|
 | `SKiDL: Refresh KiCad Library Index` | Reload the library index, using the cache if it's still valid |
 | `SKiDL: Force Rebuild KiCad Library Index` | Force a full rebuild of the KiCad library index (skips cache) |
-| `SKiDL: Enable MCP Integration` | Configure the MCP server for VS Code, Claude Desktop, or clipboard |
+| `SKiDL: Enable MCP Integration` | Configure the MCP server for Claude Desktop or clipboard (VS Code auto-detects it) |
 | `SKiDL: Browse Components` | Search and browse KiCad symbols with live fuzzy search |
 | `SKiDL: Browse Footprints` | Search and browse KiCad footprints with live fuzzy search |
 | `SKiDL: Generate BOM` | Generate a Bill of Materials from Part() calls in the active file |
@@ -185,13 +185,13 @@ AI Agent  <--stdio-->  MCP Server  -->  KiCad Libraries (local)
 
 ### Setup
 
-On first activation, the extension prompts you to set up the MCP server. Choose **Configure** to run the setup wizard, **Later** to be reminded next time, or **Don't ask again** to dismiss permanently. You can always run the setup manually from the Command Palette.
+**VS Code (automatic):** The extension registers the MCP server via the official VS Code API. It appears automatically in your MCP server list — no configuration needed. The path resolves at runtime, so it never breaks after extension updates.
 
-**Automatic setup (recommended):**
+**Claude Desktop and other MCP clients:**
 
 1. Open the Command Palette (`Ctrl+Shift+P`)
 2. Run **SKiDL: Enable MCP Integration**
-3. Choose your target: VS Code workspace, Claude Desktop, or clipboard
+3. Choose your target: Claude Desktop or clipboard
 
 The command auto-detects your Python path and KiCad library overrides, writes the config file, and merges with any existing MCP server entries.
 
@@ -215,17 +215,7 @@ pip install pygls lsprotocol mcp
 }
 ```
 
-**VS Code Copilot** (`.vscode/mcp.json` in your project):
-```json
-{
-  "servers": {
-    "skidl": {
-      "command": "python",
-      "args": ["${workspaceFolder}/mcp_server/server.py"]
-    }
-  }
-}
-```
+**Other MCP clients** — use the "Copy to clipboard" option from the setup command and paste the JSON snippet into your client's config.
 
 **3. The server auto-detects your KiCad installation.** Override with environment variables if needed:
 

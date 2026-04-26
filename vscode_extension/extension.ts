@@ -51,19 +51,16 @@ export async function activate(context: vscode.ExtensionContext) {
       const mcpPath = context.asAbsolutePath(path.join("mcp_server", "server.py"));
       const picked = await vscode.window.showQuickPick(
         [
-          { label: "VS Code (workspace)", description: "Write .vscode/mcp.json in current workspace", id: "vscode" },
           { label: "Claude Desktop", description: "Update Claude Desktop config file", id: "claude" },
           { label: "Copy to clipboard", description: "Copy JSON config snippet to clipboard", id: "clipboard" },
         ],
-        { placeHolder: "Where should the MCP server be configured?" }
+        { placeHolder: "Configure MCP for external tools (VS Code auto-detects it)" }
       );
       if (!picked) { return; }
 
       const snippet = buildMcpConfigSnippet(pythonPath, mcpPath, config);
 
-      if (picked.id === "vscode") {
-        await writeVsCodeMcpConfig(snippet);
-      } else if (picked.id === "claude") {
+      if (picked.id === "claude") {
         await writeClaudeDesktopConfig(snippet);
       } else {
         await vscode.env.clipboard.writeText(JSON.stringify(snippet, null, 2));
@@ -72,6 +69,32 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   );
   context.subscriptions.push(mcpSetupCmd);
+
+  // Register MCP server definition provider for VS Code auto-discovery
+  // This uses the official VS Code API so the MCP server path resolves
+  // at runtime — no stale versioned paths after extension updates.
+  const mcpDidChangeEmitter = new vscode.EventEmitter<void>();
+  context.subscriptions.push(vscode.lm.registerMcpServerDefinitionProvider('skidl', {
+    onDidChangeMcpServerDefinitions: mcpDidChangeEmitter.event,
+    provideMcpServerDefinitions: async () => {
+      const cfg = vscode.workspace.getConfiguration("skidl");
+      const python = getPythonPath(cfg);
+      const mcpScript = context.asAbsolutePath(path.join("mcp_server", "server.py"));
+      const env: Record<string, string> = {};
+      const symDir = cfg.get<string>("kicadSymbolDir", "");
+      const fpDir = cfg.get<string>("kicadFootprintDir", "");
+      if (symDir) { env.SKIDL_KICAD_SYMBOL_DIR = symDir; }
+      if (fpDir) { env.SKIDL_KICAD_FOOTPRINT_DIR = fpDir; }
+      return [
+        new vscode.McpStdioServerDefinition(
+          "SKiDL",
+          python,
+          [mcpScript],
+          Object.keys(env).length > 0 ? env : undefined
+        )
+      ];
+    }
+  }));
 
   // Command: Browse Components
   const browseComponentsCmd = vscode.commands.registerCommand(
@@ -383,24 +406,6 @@ export async function activate(context: vscode.ExtensionContext) {
   outputChannel.appendLine("Language client started successfully.");
   console.log("[SKiDL] Language client started successfully.");
 
-  // One-time prompt to configure MCP integration
-  const mcpPromptKey = "skidl.mcpSetupPromptShown";
-  if (!context.globalState.get<boolean>(mcpPromptKey)) {
-    const action = await vscode.window.showInformationMessage(
-      "SKiDL IntelliSense includes an MCP server for AI agents (Claude, Copilot, etc.). Set it up now?",
-      "Configure",
-      "Later",
-      "Don't ask again"
-    );
-    if (action === "Configure") {
-      vscode.commands.executeCommand("skidl.setupMcpServer");
-      context.globalState.update(mcpPromptKey, true);
-    } else if (action === "Don't ask again") {
-      context.globalState.update(mcpPromptKey, true);
-    }
-    // "Later" or dismiss: don't set the flag, ask again next time
-  }
-
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[SKiDL] Activation failed: ${msg}`);
@@ -569,36 +574,6 @@ function buildMcpConfigSnippet(
     if (fpDir) { snippet.env.SKIDL_KICAD_FOOTPRINT_DIR = fpDir; }
   }
   return snippet;
-}
-
-async function writeVsCodeMcpConfig(snippet: McpServerConfig): Promise<void> {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) {
-    vscode.window.showErrorMessage("No workspace folder open. Open a folder first.");
-    return;
-  }
-  const dotVscode = vscode.Uri.joinPath(folders[0].uri, ".vscode");
-  const mcpJsonUri = vscode.Uri.joinPath(dotVscode, "mcp.json");
-
-  let existing: Record<string, unknown> = {};
-  try {
-    const raw = await vscode.workspace.fs.readFile(mcpJsonUri);
-    existing = JSON.parse(Buffer.from(raw).toString("utf-8"));
-  } catch {
-    // File doesn't exist yet, start fresh
-  }
-
-  // Merge under servers.skidl, preserving other servers
-  if (!existing.servers || typeof existing.servers !== "object") {
-    existing.servers = {};
-  }
-  (existing.servers as Record<string, unknown>)["skidl"] = snippet;
-
-  // Ensure .vscode directory exists
-  try { await vscode.workspace.fs.createDirectory(dotVscode); } catch { /* already exists */ }
-  const content = Buffer.from(JSON.stringify(existing, null, 2) + "\n", "utf-8");
-  await vscode.workspace.fs.writeFile(mcpJsonUri, content);
-  vscode.window.showInformationMessage("MCP server configured in .vscode/mcp.json");
 }
 
 async function writeClaudeDesktopConfig(snippet: McpServerConfig): Promise<void> {
